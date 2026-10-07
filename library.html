@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Моя видеотека - Kinoproba</title>
+<link rel="stylesheet" href="css/main.css"><link rel="stylesheet" href="css/library.css">
+</head>
+<body><div class="wrapper">
+<header class="container">
+  <a href="index.html" class="logo">KINOPROBA</a>
+  <nav><ul>
+    <li><a href="index.html">Home</a></li>
+    <li class="active"><a href="library.html">Library</a></li>
+    <li><a href="community.html">Collections</a></li><li><a href="profile.html" id="me">Login</a></li><li><a href="contacts.html">Contacts</a></li>
+  </ul></nav>
+  <div class="header-extra"><select id="mode" class="b g"><option value="personal">Личная коллекция</option><option value="corp">Корпоративный архив</option><option value="public">Публичный каталог</option></select></div>
+</header>
+
+<main class="container">
+  <h1>Моя видеотека</h1>
+  <div id="remind"></div>
+
+  <div class="addbar edit">
+    <button class="b" id="addTmdb">Найти в TMDB</button>
+    <button class="b g" id="addMan">Добавить вручную</button>
+    <button class="b g" id="demo">Демо-фильмы (бесплатные)</button>
+    <label class="b g">Сканировать папку<input id="scan" type="file" webkitdirectory multiple hidden></label>
+    <label class="b g">Импорт JSON<input id="imp" type="file" accept=".json" hidden></label>
+    <button class="b g" id="expJ">Экспорт JSON</button><button class="b g" id="expC">Экспорт CSV</button>
+  </div>
+
+  <div class="tools">
+    <input type="search" id="q" placeholder="Название, режиссёр, жанр, тег, инв. номер…">
+    <select id="fs"><option value="">Все статусы</option><option value="plan">В планах</option><option value="progress">В процессе</option><option value="done">Просмотрено</option></select>
+    <select id="ft"><option value="">Все типы</option><option value="movie">Фильмы</option><option value="tv">Сериалы</option><option value="doc">Документальные</option></select>
+    <select id="fr"><option value="0">Любая оценка</option><option value="3">от 3★</option><option value="4">от 4★</option><option value="5">5★</option></select>
+    <select id="fc"></select>
+    <select id="so"><option value="added">Сначала новые</option><option value="title">По названию</option><option value="rating">По оценке</option><option value="year">По году</option></select>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <h2>Аналитика</h2>
+  <div class="stats" id="stats"></div>
+</main></div>
+
+<dialog id="dTmdb">
+  <h3>Поиск в TMDB</h3>
+  <input id="tq" placeholder="Название фильма или сериала" autocomplete="off">
+  <div class="sr" id="tres"></div>
+  <button class="b g" style="margin-top:12px" onclick="dTmdb.close()">Закрыть</button>
+</dialog>
+
+<dialog id="dEp">
+  <h3 id="epn">Серии</h3>
+  <div id="epb" style="max-height:55vh;overflow:auto"></div>
+  <div class="tools"><input id="newc" type="number" min="1" placeholder="Серий в новом сезоне" style="width:190px"><button class="b g" id="adds">+ Сезон</button></div>
+  <div style="display:flex;gap:8px"><button class="b" id="nextEp">Отметить следующую серию</button><button class="b g" onclick="dEp.close()">Закрыть</button></div>
+</dialog>
+
+<dialog id="dEdit"><form id="fEdit" method="dialog">
+  <h3 id="eh">Карточка</h3>
+  <label>Название<input name="title" required></label>
+  <label>Год<input name="year" inputmode="numeric"></label>
+  <label>Режиссёр<input name="director"></label>
+  <label>Жанры (через запятую)<input name="genres"></label>
+  <label>Тип<select name="type"><option value="movie">Фильм</option><option value="tv">Сериал</option><option value="doc">Документальный</option></select></label>
+  <label>Источник<select name="source"><option value="stream">Стриминг</option><option value="local">Локальный файл</option><option value="disc">Диск / носитель</option></select></label>
+  <label>Ссылка или путь<input name="url"></label>
+  <label>Инв. номер / носитель<input name="inv"></label>
+  <label>Длительность, мин (для сериала — всего)<input name="runtime" type="number" min="0"></label>
+  <label>Прогресс (например, S1E5)<input name="progress"></label>
+  <label>Теги (через запятую)<input name="tags" placeholder="Для вечера с семьёй, Хоррор на Хеллоуин"></label>
+  <label>Подборка<input name="collection" list="cols"></label><datalist id="cols"></datalist>
+  <label>Рецензия<textarea name="review" rows="3"></textarea></label>
+  <div style="display:flex;gap:8px;margin-top:14px"><button class="b">Сохранить</button><button type="button" class="b g" onclick="dEdit.close()">Отмена</button></div>
+</form></dialog>
+
+<script src="js/app.js"></script>
+<script>
+const $ = s => document.querySelector(s), e = KP.esc;
+let editId = null;
+const csv = v => v.split(',').map(s => s.trim()).filter(Boolean);
+
+function render() {
+  const L = KP.load(), q = $('#q').value.toLowerCase(), f = { s: $('#fs').value, t: $('#ft').value, r: +$('#fr').value, c: $('#fc').value };
+  // подборки
+  const cols = [...new Set(L.map(i => i.collection).filter(Boolean))];
+  $('#fc').innerHTML = '<option value="">Все подборки</option>' + cols.map(c => `<option ${c === f.c ? 'selected' : ''}>${e(c)}</option>`).join('');
+  $('#cols').innerHTML = cols.map(c => `<option value="${e(c)}">`).join('');
+  let a = L.filter(i => (!f.s || i.status === f.s) && (!f.t || i.type === f.t) && i.rating >= f.r && (!f.c || i.collection === f.c) &&
+    [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.collection].join(' ').toLowerCase().includes(q));
+  const so = $('#so').value;
+  a.sort((x, y) => so === 'title' ? x.title.localeCompare(y.title) : so === 'rating' ? y.rating - x.rating : so === 'year' ? y.year - x.year : y.added - x.added);
+  $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB, вручную или сканированием папки.</p>';
+  remind(L); stats(L);
+}
+function card(i) {
+  const link = `movie.html?lib=${i.id}`;
+  return `<div class="card" data-id="${i.id}">
+    <div class="p" style="${i.poster ? `background-image:url('${e(i.poster)}')` : ''}">${i.poster ? '' : '▶'}</div>
+    <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type]} · ${KP.SRC[i.source]}${i.inv ? ' · ' + e(i.inv) : ''}</small>
+      <div>${i.genres.map(g => `<span class="pill">${e(g)}</span>`).join('')}${i.tags.map(g => `<span class="pill">#${e(g)}</span>`).join('')}</div>
+      ${i.progress ? `<small>Прогресс: ${e(i.progress)}</small>` : ''}
+      <select data-a="st" class="edit">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === i.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <div class="stars edit">${[1, 2, 3, 4, 5].map(n => `<span data-a="r" data-n="${n}" class="${n <= i.rating ? 'on' : ''}">★</span>`).join('')}</div>
+      <div class="acts"><a class="b" href="${link}">▶ Смотреть</a>${i.type === 'tv' ? '<button class="b g edit" data-a="ep">Серии</button>' : ''}<button class="b g edit" data-a="e">✎</button><button class="b g edit" data-a="d">✕</button></div>
+    </div></div>`;
+}
+$('#grid').addEventListener('click', ev => {
+  const t = ev.target.closest('[data-a]'); if (!t || t.tagName === 'SELECT') return;
+  const id = t.closest('.card').dataset.id, a = t.dataset.a;
+  if (a === 'r') { const it = KP.load().find(x => x.id === id); KP.update(id, { rating: it.rating === +t.dataset.n ? 0 : +t.dataset.n }); render(); }
+  if (a === 'd' && confirm('Удалить из библиотеки?')) { KP.remove(id); render(); }
+  if (a === 'e') openEdit(id);
+  if (a === 'ep') openEp(id);
+});
+$('#grid').addEventListener('change', ev => { if (ev.target.dataset.a === 'st') { KP.update(ev.target.closest('.card').dataset.id, { status: ev.target.value }); render(); } });
+['#q', '#fs', '#ft', '#fr', '#fc', '#so'].forEach(s => $(s).addEventListener('input', render));
+
+// напоминания: начатое без движения 14+ дней, планы старше 30 дней
+function remind(L) {
+  const d = 864e5, n = Date.now();
+  const p = L.filter(i => i.status === 'progress' && n - i.upd > 14 * d), w = L.filter(i => i.status === 'plan' && n - i.added > 30 * d);
+  const li = x => `<a href="movie.html?lib=${x.id}">${e(x.title)}</a>`;
+  $('#remind').innerHTML = (p.length ? `<div class="remind">Не досмотрено: ${p.map(li).join(', ')}</div>` : '') +
+    (w.length ? `<div class="remind">Давно в планах: ${w.slice(0, 6).map(li).join(', ')}${w.length > 6 ? ' и ещё ' + (w.length - 6) : ''}</div>` : '');
+}
+// аналитика
+function bars(m, fmt = v => v) {
+  const e2 = Object.entries(m), mx = Math.max(1, ...e2.map(x => x[1]));
+  return e2.length ? e2.map(([k, v]) => `<div class="bar"><b title="${e(k)}">${e(k)}</b><i style="width:${v / mx * 55}%"></i>${fmt(v)}</div>`).join('') : '<small>Пока нет данных</small>';
+}
+function stats(L) {
+  const done = L.filter(i => i.status === 'done'), rated = L.filter(i => i.rating);
+  const wm = i => i.status === 'done' ? (i.runtime || 0) : (i.type === 'tv' && epTotal(i) ? (i.runtime || 0) * (i.w || []).length / epTotal(i) : 0);
+  const hrs = L.reduce((s, i) => s + wm(i), 0) / 60;
+  const top = (arr, n = 6) => Object.fromEntries(Object.entries(arr.reduce((m, k) => (k && (m[k] = (m[k] || 0) + 1), m), {})).sort((a, b) => b[1] - a[1]).slice(0, n));
+  const mon = {}; done.forEach(i => { const d = new Date(i.watched || i.added), k = d.toISOString().slice(0, 7); mon[k] = (mon[k] || 0) + (i.runtime || 0) / 60; });
+  const monS = Object.fromEntries(Object.entries(mon).sort().slice(-6).map(([k, v]) => [k, +v.toFixed(1)]));
+  $('#stats').innerHTML = `
+    <div><h4>Итоги</h4><p>В каталоге: <b>${L.length}</b></p><p>Просмотрено: <b>${done.length}</b> (${hrs.toFixed(1)} ч)</p>
+      <p>Средняя оценка: <b>${rated.length ? (rated.reduce((s, i) => s + i.rating, 0) / rated.length).toFixed(1) : '—'}</b></p>
+      <p>Не просмотрено: <b>${L.length - done.length}</b></p></div>
+    <div><h4>Жанры</h4>${bars(top(L.flatMap(i => i.genres)))}</div>
+    <div><h4>Часы по месяцам</h4>${bars(monS, v => v + ' ч')}</div>
+    <div><h4>Режиссёры</h4>${bars(top(L.map(i => i.director)))}</div>
+    <div><h4>Источники</h4>${bars(top(L.map(i => KP.SRC[i.source])))}</div>`;
+}
+
+// добавление: TMDB
+let tt;
+$('#addTmdb').onclick = () => { dTmdb.showModal(); $('#tq').focus(); };
+$('#tq').oninput = ev => { clearTimeout(tt); tt = setTimeout(async () => {
+  const q = ev.target.value.trim(); if (q.length < 2) return;
+  try {
+    let r;
+    if (/^tt\d+$/.test(q)) { const f = await KP.tmdb('/find/' + q, '&external_source=imdb_id'); r = [...f.movie_results.map(x => ({ ...x, media_type: 'movie' })), ...f.tv_results.map(x => ({ ...x, media_type: 'tv' }))]; }
+    else r = (await KP.tmdb('/search/multi', '&query=' + encodeURIComponent(q))).results.filter(x => x.media_type !== 'person').slice(0, 8);
+    $('#tres').innerHTML = r.map(x => `<a data-id="${x.id}" data-t="${x.media_type}"><img src="${x.poster_path ? KP.img + x.poster_path : ''}" alt=""><div>${e(x.title || x.name)}<br><small>${(x.release_date || x.first_air_date || '').slice(0, 4)} · ${x.media_type === 'tv' ? 'Сериал' : 'Фильм'}</small></div></a>`).join('') || 'Ничего не найдено';
+  } catch (err) { $('#tres').textContent = 'Не удалось связаться с TMDB (' + err.message + '). Причину покажет страница check.html.'; }
+}, 350); };
+$('#tres').onclick = async ev => {
+  const a = ev.target.closest('a'); if (!a) return;
+  const r = KP.add(await KP.fromTmdb(a.dataset.id, a.dataset.t));
+  alert(r.dup ? `«${r.dup.title}» уже есть в библиотеке. Дубль не создан.` : 'Добавлено в «В планах»');
+  dTmdb.close(); render();
+};
+// добавление и правка вручную
+$('#addMan').onclick = () => openEdit(null);
+$('#demo').onclick = async () => { $('#demo').disabled = true; const n = await KP.demo(); $('#demo').disabled = false; alert(n ? `Добавлено фильмов: ${n}` : 'Демо-фильмы уже в библиотеке'); render(); };
+function openEdit(id) {
+  editId = id; const it = id ? KP.load().find(x => x.id === id) : {}, f = $('#fEdit');
+  $('#eh').textContent = id ? 'Редактирование' : 'Новая запись'; f.reset();
+  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'collection', 'review']) if (f[k] && it[k] !== undefined) f[k].value = it[k];
+  f.genres.value = (it.genres || []).join(', '); f.tags.value = (it.tags || []).join(', '); dEdit.showModal();
+}
+$('#fEdit').onsubmit = () => {
+  const f = $('#fEdit'), d = { title: f.title.value.trim(), year: f.year.value.trim(), director: f.director.value.trim(), type: f.type.value, source: f.source.value,
+    url: f.url.value.trim(), inv: f.inv.value.trim(), runtime: +f.runtime.value || 0, progress: f.progress.value.trim(), collection: f.collection.value.trim(),
+    review: f.review.value.trim(), genres: csv(f.genres.value), tags: csv(f.tags.value) };
+  if (editId) KP.update(editId, d); else { const r = KP.add(d); if (r.dup) alert('Такая запись уже есть: ' + r.dup.title); }
+  render();
+};
+// сериалы: сезоны и серии (из TMDB или добавленные вручную), прогресс S1E5, статус выставляется сам
+let epId = null;
+const code = (s, k) => 'S' + s + 'E' + k, epTotal = it => (it.seasons || []).reduce((s, x) => s + x.c, 0);
+function epSync(it, w) {
+  const num = c => c.match(/\d+/g).map(Number), tot = epTotal(it);
+  if (!w.length) return { w, progress: '', status: 'plan' };
+  const last = w.slice().sort((a, b) => num(a)[0] - num(b)[0] || num(a)[1] - num(b)[1]).pop();
+  return { w, progress: last, status: tot && w.length >= tot ? 'done' : 'progress' };
+}
+function openEp(id) {
+  epId = id; const it = KP.load().find(x => x.id === id), w = it.w || [], S = it.seasons || [];
+  $('#epn').textContent = it.title + (it.progress ? ' — ' + it.progress : '');
+  const cur = S.find(s => Array.from({ length: s.c }, (_, k) => code(s.n, k + 1)).some(c => !w.includes(c)));
+  $('#epb').innerHTML = S.map(s => {
+    const cs = Array.from({ length: s.c }, (_, k) => code(s.n, k + 1)), n = cs.filter(c => w.includes(c)).length;
+    return `<details ${cur === s ? 'open' : ''}><summary>Сезон ${s.n} (${n}/${s.c})</summary><div class="eps"><label><input type="checkbox" data-s="${s.n}" ${n === s.c ? 'checked' : ''}> все</label>${cs.map((c, k) => `<label><input type="checkbox" data-c="${c}" ${w.includes(c) ? 'checked' : ''}>${k + 1}</label>`).join('')}</div></details>`;
+  }).join('') || '<p>Сезонов нет. Добавьте сезон ниже (число серий).</p>';
+  if (!dEp.open) dEp.showModal();
+}
+$('#epb').onchange = ev => {
+  const it = KP.load().find(x => x.id === epId), t = ev.target;
+  if (t.dataset.s) document.querySelectorAll(`#epb [data-c^="S${t.dataset.s}E"]`).forEach(c => c.checked = t.checked);
+  KP.update(epId, epSync(it, [...document.querySelectorAll('#epb [data-c]:checked')].map(c => c.dataset.c)));
+  openEp(epId); render();
+};
+$('#nextEp').onclick = () => {
+  const it = KP.load().find(x => x.id === epId), w = it.w || [];
+  for (const s of it.seasons || []) for (let k = 1; k <= s.c; k++) if (!w.includes(code(s.n, k))) { KP.update(epId, epSync(it, [...w, code(s.n, k)])); openEp(epId); render(); return; }
+  alert('Все серии уже отмечены');
+};
+$('#adds').onclick = () => {
+  const n = +$('#newc').value; if (!n) return;
+  const s = KP.load().find(x => x.id === epId).seasons || [];
+  KP.update(epId, { seasons: [...s, { n: s.length ? s[s.length - 1].n + 1 : 1, c: n }] }); $('#newc').value = ''; openEp(epId); render();
+};
+// сканирование папки с видеофайлами
+$('#scan').onchange = ev => {
+  let n = 0, s = 0;
+  [...ev.target.files].filter(f => /\.(mkv|mp4|avi|webm|mov)$/i.test(f.name)).forEach(f => {
+    const t = f.name.replace(/\.[^.]+$/, '').replace(/[._]+/g, ' ').trim();
+    KP.add({ title: t, year: (t.match(/\b(19|20)\d{2}\b/) || [''])[0], source: 'local', url: f.webkitRelativePath || f.name }).item ? n++ : s++;
+  });
+  alert(`Найдено новых файлов: ${n}. Пропущено дублей: ${s}.`); ev.target.value = ''; render();
+};
+// импорт / экспорт
+const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); };
+$('#expJ').onclick = () => dl('kinoproba-library.json', JSON.stringify(KP.load(), null, 2), 'application/json');
+$('#expC').onclick = () => {
+  const c = v => `"${String(v ?? '').replace(/"/g, '""')}"`, H = ['title', 'year', 'type', 'status', 'rating', 'director', 'genres', 'tags', 'source', 'inv', 'url', 'runtime', 'collection'];
+  dl('kinoproba-library.csv', '\ufeff' + H.join(';') + '\n' + KP.load().map(i => H.map(h => c(Array.isArray(i[h]) ? i[h].join(', ') : i[h])).join(';')).join('\n'), 'text/csv');
+};
+$('#imp').onchange = async ev => {
+  try {
+    const arr = JSON.parse(await ev.target.files[0].text()); let n = 0;
+    arr.forEach(i => { if (i.title && KP.add(i).item) n++; });
+    alert(`Импортировано: ${n}, пропущено дублей: ${arr.length - n}`);
+  } catch (err) { alert('Файл не распознан. Нужен JSON, экспортированный из Kinoproba.'); }
+  ev.target.value = ''; render();
+};
+// режим: личная / корпоративная / публичная (только просмотр)
+$('#mode').value = localStorage.getItem('kp_mode') || 'personal';
+$('#mode').onchange = () => { localStorage.setItem('kp_mode', $('#mode').value); applyMode(); };
+function applyMode() { document.body.classList.toggle('ro', $('#mode').value === 'public'); }
+applyMode(); render(); KP.nav(); KP.pull().then(render);
+</script>
+</body></html>

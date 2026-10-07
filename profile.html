@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Профиль - Kinoproba</title>
+<link rel="stylesheet" href="css/main.css"><link rel="stylesheet" href="css/library.css">
+</head>
+<body><div class="wrapper">
+<header class="container">
+  <a href="index.html" class="logo">KINOPROBA</a>
+  <nav><ul>
+    <li><a href="index.html">Home</a></li><li><a href="library.html">Library</a></li>
+    <li><a href="community.html">Collections</a></li><li class="active"><a href="profile.html" id="me">Login</a></li><li><a href="contacts.html">Contacts</a></li>
+  </ul></nav>
+</header>
+<main class="container" id="app" style="max-width:760px;padding-bottom:60px"></main></div>
+<script src="js/app.js"></script>
+<script>
+const $ = s => document.querySelector(s), e = KP.esc, who = new URLSearchParams(location.search).get('u');
+const box = h => `<div class="card" style="padding:22px;margin:18px 0">${h}</div>`;
+KP.nav();
+
+function authView() {
+  $('#app').innerHTML = `<h1>Вход и регистрация</h1>` + box(`
+    <div class="tabs"><button class="b on" id="t1">Вход</button><button class="b g" id="t2">Регистрация</button></div>
+    <form id="af" class="tools" style="flex-direction:column;align-items:stretch">
+      <input id="lg" placeholder="Логин" required autocomplete="username">
+      <input id="pw" placeholder="Пароль (от 6 символов)" type="password" required autocomplete="current-password">
+      <button class="b" id="go">Войти</button><div id="msg" style="color:#ffb3b3"></div></form>`);
+  let reg = false;
+  const sw = r => { reg = r; $('#t1').className = 'b ' + (r ? 'g' : 'on'); $('#t2').className = 'b ' + (r ? 'on' : 'g'); $('#go').textContent = r ? 'Создать аккаунт' : 'Войти'; };
+  $('#t1').onclick = () => sw(false); $('#t2').onclick = () => sw(true);
+  $('#af').onsubmit = async ev => {
+    ev.preventDefault();
+    try {
+      const d = await KP.api(reg ? '/register' : '/login', { method: 'POST', body: reg ? { username: $('#lg').value.trim(), password: $('#pw').value } : { login: $('#lg').value.trim(), password: $('#pw').value } });
+      KP.login(d); await KP.pull(); KP.nav(); me();
+    } catch (er) { $('#msg').textContent = er.message; }
+  };
+}
+
+async function me() {
+  let u; try { u = await KP.api('/me'); } catch (er) { KP.logout(); return authView(); }
+  const L = KP.load(), done = L.filter(i => i.status === 'done').length;
+  $('#app').innerHTML = `<h1>👤 ${e(u.username)}</h1>` + box(`
+    <p>На сайте с ${new Date(u.created).toLocaleDateString('ru')}</p>
+    <p>В библиотеке: <b>${L.length}</b> · просмотрено: <b>${done}</b></p>
+    <label style="display:block;margin-top:12px">О себе<textarea id="bio" rows="2" style="width:100%;margin-top:4px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:9px;font:inherit">${e(u.bio)}</textarea></label>
+    <div class="tools"><button class="b" id="sb">Сохранить</button><button class="b g" id="lo">Выйти</button></div>`) +
+    `<h2>Мои подборки</h2><p style="color:#bbb">Подборка создаётся, когда вы указываете её название в карточке фильма (поле «Подборка»). Здесь её можно открыть для всех.</p><div id="cols"></div>`;
+  $('#sb').onclick = async () => { await KP.api('/me', { method: 'PUT', body: { bio: $('#bio').value } }); alert('Сохранено'); };
+  $('#lo').onclick = () => { KP.logout(); KP.nav(); authView(); };
+  const cols = await KP.api('/my/collections');
+  $('#cols').innerHTML = cols.length ? cols.map((c, k) => box(`<h3>${e(c.name)} <small style="color:#bbb">(${c.n})</small></h3>
+    <input data-k="${k}" class="dsc" placeholder="Описание" value="${e(c.descr)}" style="width:100%;margin:8px 0;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:9px;font:inherit">
+    <label><input type="checkbox" data-k="${k}" class="pub" ${c.public ? 'checked' : ''}> Открыта всем (видна в поиске)</label>`)).join('') : '<p>Пока нет подборок.</p>';
+  const save = k => KP.api('/my/collections', { method: 'PUT', body: { name: cols[k].name, descr: document.querySelector(`.dsc[data-k="${k}"]`).value, public: document.querySelector(`.pub[data-k="${k}"]`).checked } });
+  document.querySelectorAll('.pub,.dsc').forEach(i => i.onchange = () => save(+i.dataset.k));
+}
+
+async function other(name) {
+  try {
+    const u = await KP.api('/users/' + encodeURIComponent(name));
+    $('#app').innerHTML = `<h1>👤 ${e(u.username)}</h1><p>${e(u.bio)}</p><h2>Открытые подборки</h2>` +
+      (u.collections.map(c => box(`<h3><a href="community.html?c=${u.id}/${encodeURIComponent(c.name)}" style="color:#ffb3b3">${e(c.name)}</a> <small>(${c.n})</small></h3><p>${e(c.descr)}</p>`)).join('') || '<p>Нет открытых подборок.</p>');
+  } catch (er) { $('#app').innerHTML = `<p>${e(er.message)}</p>`; }
+}
+who ? other(who) : KP.tok ? me() : authView();
+</script>
+</body></html>
