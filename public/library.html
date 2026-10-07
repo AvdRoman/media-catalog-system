@@ -26,9 +26,6 @@
     <button class="b" id="addTmdb">Найти в TMDB</button>
     <button class="b" id="addMan">Создать свою карточку</button>
     <button class="b g" id="demo">Демо-фильмы (бесплатные)</button>
-    <label class="b g">Сканировать папку<input id="scan" type="file" webkitdirectory multiple hidden></label>
-    <label class="b g">Импорт JSON<input id="imp" type="file" accept=".json" hidden></label>
-    <button class="b g" id="expJ">Экспорт JSON</button><button class="b g" id="expC">Экспорт CSV</button>
   </div>
 
   <div class="tools">
@@ -130,7 +127,7 @@ function render() {
     [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.collection].join(' ').toLowerCase().includes(q));
   const so = $('#so').value;
   a.sort((x, y) => so === 'title' ? x.title.localeCompare(y.title) : so === 'rating' ? y.rating - x.rating : so === 'year' ? y.year - x.year : y.added - x.added);
-  $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB, вручную или сканированием папки.</p>';
+  $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB или вручную.</p>';
   remind(L); stats(L);
 }
 function card(i) {
@@ -335,30 +332,6 @@ $('#adds').onclick = () => {
   const n = +$('#newc').value; if (!n) return;
   const s = KP.load().find(x => x.id === epId).seasons || [];
   KP.update(epId, { seasons: [...s, { n: s.length ? s[s.length - 1].n + 1 : 1, c: n }] }); $('#newc').value = ''; openEp(epId); render();
-};
-// сканирование папки с видеофайлами
-$('#scan').onchange = ev => {
-  let n = 0, s = 0;
-  [...ev.target.files].filter(f => /\.(mkv|mp4|avi|webm|mov)$/i.test(f.name)).forEach(f => {
-    const t = f.name.replace(/\.[^.]+$/, '').replace(/[._]+/g, ' ').trim();
-    KP.add({ title: t, year: (t.match(/\b(19|20)\d{2}\b/) || [''])[0], source: 'local', url: f.webkitRelativePath || f.name }).item ? n++ : s++;
-  });
-  alert(`Найдено новых файлов: ${n}. Пропущено дублей: ${s}.`); ev.target.value = ''; render();
-};
-// импорт / экспорт
-const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); };
-$('#expJ').onclick = () => dl('kinoproba-library.json', JSON.stringify(KP.load(), null, 2), 'application/json');
-$('#expC').onclick = () => {
-  const c = v => `"${String(v ?? '').replace(/"/g, '""')}"`, H = ['title', 'year', 'type', 'status', 'rating', 'director', 'genres', 'tags', 'source', 'inv', 'url', 'runtime', 'collection'];
-  dl('kinoproba-library.csv', '\ufeff' + H.join(';') + '\n' + KP.load().map(i => H.map(h => c(Array.isArray(i[h]) ? i[h].join(', ') : i[h])).join(';')).join('\n'), 'text/csv');
-};
-$('#imp').onchange = async ev => {
-  try {
-    const arr = JSON.parse(await ev.target.files[0].text()); let n = 0;
-    arr.forEach(i => { if (i.title && KP.add(i).item) n++; });
-    alert(`Импортировано: ${n}, пропущено дублей: ${arr.length - n}`);
-  } catch (err) { alert('Файл не распознан. Нужен JSON, экспортированный из Kinoproba.'); }
-  ev.target.value = ''; render();
 };
 // режим: личная / корпоративная / публичная (только просмотр)
 $('#mode').value = localStorage.getItem('kp_mode') || 'personal';
