@@ -46,6 +46,7 @@ async function open(uid, name) {
       <button class="b" id="cp">+ Добавить всю подборку в мою библиотеку</button>
       <div class="grid">${cur.items.map(i => `<div class="card"><div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>
         <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type] || ''}</small>
+        ${i.pubReview ? `<details class="rv-d"><summary>${(KP.tone(i.pubReview.revTone) || ['📝'])[0]} Рецензия автора</summary>${KP.rvView(i.pubReview)}</details>` : ''}
         ${i.tmdb ? `<a class="b g" href="movie.html?id=${i.tmdb}&t=${i.type === 'tv' ? 'tv' : 'movie'}">Открыть</a>` : ''}</div></div>`).join('')}</div>`;
     $('#cp').onclick = copy; $('#view').scrollIntoView({ behavior: 'smooth' });
   } catch (er) { alert(er.message); }
@@ -53,7 +54,7 @@ async function open(uid, name) {
 function copy() {
   if (!KP.tok) { alert('Войдите в аккаунт, чтобы сохранять подборки.'); location.href = 'profile.html'; return; }
   let n = 0; // копии попадают в «В планах» и в личную (закрытую) подборку
-  cur.items.forEach(i => { if (KP.add({ ...i, w: [], collection: `${cur.name} (${cur.owner})` }).item) n++; });
+  cur.items.forEach(({ pubReview, ...i }) => { if (KP.add({ ...i, w: [], collection: `${cur.name} (${cur.owner})` }).item) n++; }); // чужая рецензия в копию не попадает
   alert(`Добавлено: ${n}, дублей пропущено: ${cur.items.length - n}`);
 }
 const c = new URLSearchParams(location.search).get('c'); // ссылка вида ?c=uid/название

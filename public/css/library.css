@@ -104,3 +104,29 @@ dialog label.b { display: block; text-align: center; margin: 0; color: #fff; fon
 .okbox, .nobox { border-radius: 10px; padding: 8px 14px; margin-bottom: 10px; line-height: 1.5; } .okbox { background: rgba(60,180,90,.2); } .nobox { background: rgba(255,255,255,.08); color: #bbb; }
 .src { color: #999; } .svc { margin-top: 12px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 10px; }
 .svc .chip { margin: 0 6px 6px 0; } .player hr { border: 0; border-top: 1px solid rgba(255,255,255,.12); margin: 12px 0; }
+/* рецензии */
+.rv { background: rgba(0,0,0,.45); border-left: 4px solid rgba(255,255,255,.25); border-radius: 14px; padding: 14px 18px; margin: 10px 0; }
+.rv.pos { border-left-color: #3cb45a; } .rv.neu { border-left-color: #ffb400; } .rv.neg { border-left-color: #d70000; }
+.rv-h { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; font-size: 14px; }
+.rv-who { color: #ffb3b3; font-weight: 600; } .rv-st { color: #ffb400; letter-spacing: 1px; }
+.rv-tone { background: rgba(255,255,255,.1); border-radius: 20px; padding: 2px 10px; font-size: 13px; }
+.rv-h small { color: #999; margin-left: auto; }
+.rv-t { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.rv-t.spoil { filter: blur(7px); user-select: none; max-height: 5.5em; overflow: hidden; }
+.rv-sp { margin-top: 10px; padding: 6px 14px; font-size: 14px; }
+.rv-empty { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 10px 0; padding: 12px 18px; border: 1px dashed rgba(255,255,255,.25); border-radius: 14px; background: rgba(255,255,255,.05); color: #bbb; }
+.rv-bar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 0 14px; color: #999; }
+.rv-bar .b { padding: 6px 14px; font-size: 14px; }
+.rv-acts, .rv-bar .edit { display: inline-flex; gap: 8px; align-items: center; }
+.rv-form { background: rgba(0,0,0,.45); border-radius: 14px; padding: 16px 18px; margin: 10px 0; }
+.rv-form textarea { width: 100%; margin-top: 4px; background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 10px 14px; font: inherit; line-height: 1.5; outline: none; resize: vertical; }
+.rv-form textarea:focus { border-color: #d70000; box-shadow: 0 0 10px #d70000; }
+.rv-tones { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; } .rv-tones .chip { font-size: 14px; padding: 6px 14px; }
+.rv-form .rv-ck { display: flex; gap: 8px; align-items: baseline; margin-top: 10px; font-size: 14px; color: #ddd; cursor: pointer; }
+.rv-form .rv-ck input { width: auto; margin: 0; } .rv-form .rv-ck small { color: #999; }
+.rv-cnt { text-align: right; }
+.rv-others { margin-top: 28px; } .rv-others h2 { font-size: 22px; margin-bottom: 4px; } .rv-none { color: #999; }
+.rv-snip { cursor: pointer; font-size: 13px; line-height: 1.4; color: #ddd; background: rgba(255,255,255,.07); border-radius: 10px; padding: 7px 10px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.rv-snip:hover { background: rgba(255,255,255,.12); }
+.card .rv-d summary { cursor: pointer; color: #ffb3b3; font-size: 13px; } .card .rv { margin: 8px 0 0; padding: 10px 12px; font-size: 13px; }
+dialog .rv-form { background: none; padding: 0; margin: 12px 0 0; } dialog .rv { margin-top: 6px; }

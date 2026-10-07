@@ -125,6 +125,72 @@ const KP = {
     return this.save(l);
   },
   remove(id) { this.save(this.load().filter(i => i.id !== id)); },
+  // --- рецензии: текст + впечатление + пометка «спойлеры» + «показывать другим» (всё хранится в самой карточке) ---
+  RV: { pos: ['👍', 'Понравилось'], neu: ['😐', 'Нейтрально'], neg: ['👎', 'Не понравилось'] }, RV_MAX: 3000,
+  tone(k) { return Object.hasOwn(this.RV, k) ? this.RV[k] : null; },
+  hasRv(i) { return !!(i && String(i.review || '').trim()); },
+  // рецензия для чтения; r = { review, revTone, revSpoiler, revAt, rating }; who — автор (у чужих рецензий);
+  // own — своя рецензия: спойлер не скрываем, оценку не дублируем (она рядом, в блоке со звёздами)
+  rvView(r, who = '', own = false) {
+    const e = this.esc, t = this.tone(r.revTone), sp = !!r.revSpoiler, hide = sp && !own, n = Math.max(0, Math.min(5, Math.round(+r.rating) || 0));
+    return `<div class="rv ${t ? r.revTone : ''}"><div class="rv-h">${who ? `<a class="rv-who" href="profile.html?u=${encodeURIComponent(who)}">${e(who)}</a>` : ''}${t ? `<span class="rv-tone">${t[0]} ${t[1]}</span>` : ''}${!own && n ? `<span class="rv-st" title="Оценка ${n} из 5">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>` : ''}${own && sp ? '<span class="rv-tone">⚠ спойлеры</span>' : ''}${r.revAt ? `<small>${new Date(r.revAt).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })}</small>` : ''}</div>
+      <div class="rv-t${hide ? ' spoil' : ''}">${e(r.review)}</div>${hide ? '<button type="button" class="b g rv-sp">⚠ Есть спойлеры — показать</button>' : ''}</div>`;
+  },
+  // форма рецензии внутри box; done(true) — сохранено, done(false) — отмена
+  rvForm(box, id, done) {
+    const it = this.load().find(x => x.id === id); if (!it) return done(false);
+    const had = this.hasRv(it); let tone = this.tone(it.revTone) ? it.revTone : '';
+    box.innerHTML = `<div class="rv-form">
+      <div class="rv-tones" role="group" aria-label="Впечатление">${Object.entries(this.RV).map(([k, v]) => `<button type="button" class="chip" data-t="${k}">${v[0]} ${v[1]}</button>`).join('')}</div>
+      <textarea rows="7" maxlength="${this.RV_MAX}" aria-label="Текст рецензии" placeholder="Чем запомнился фильм? Что понравилось, что нет? Кому бы вы его посоветовали?"></textarea>
+      <div class="hint rv-cnt"></div>
+      <label class="rv-ck"><input type="checkbox" name="sp"><span>В тексте есть спойлеры <small>(другим он будет скрыт, пока не нажмут «показать»)</small></span></label>
+      <label class="rv-ck"><input type="checkbox" name="pub"><span>Показывать другим пользователям <small>(на странице фильма и в открытых подборках)</small></span></label>
+      <div class="hint rv-login"></div>
+      <p class="ferr" role="alert"></p>
+      <div class="fact"><button type="button" class="b" data-r="s">Сохранить рецензию</button><button type="button" class="b g" data-r="c">Отмена</button></div></div>`;
+    const ta = box.querySelector('textarea'), ck = n => box.querySelector(`[name="${n}"]`), err = box.querySelector('.ferr');
+    ta.value = it.review || ''; ck('sp').checked = !!it.revSpoiler;
+    ck('pub').checked = !!this.tok && (had ? !!it.revPublic : true); ck('pub').disabled = !this.tok;
+    box.querySelector('.rv-login').textContent = this.tok ? '' : 'Войдите в аккаунт, чтобы рецензию могли прочитать другие пользователи.';
+    const count = () => box.querySelector('.rv-cnt').textContent = `${ta.value.length} / ${this.RV_MAX}`;
+    const tones = () => box.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === tone));
+    ta.oninput = () => { count(); err.textContent = ''; }; count(); tones();
+    box.onclick = ev => {
+      const b = ev.target.closest('button'); if (!b) return;
+      if (b.dataset.t) { tone = tone === b.dataset.t ? '' : b.dataset.t; return tones(); }
+      if (b.dataset.r === 'c') return done(false);
+      if (b.dataset.r !== 's') return;
+      const text = ta.value.trim();
+      if (!text) { err.textContent = had ? 'Рецензия пустая. Напишите текст или нажмите «Отмена»; удалить рецензию можно кнопкой под ней.' : 'Напишите текст рецензии.'; return; }
+      const same = text === String(it.review || '').trim();
+      if (this.update(id, { review: text, revTone: tone, revSpoiler: ck('sp').checked, revPublic: !!this.tok && ck('pub').checked, revAt: same && it.revAt ? it.revAt : Date.now() })) done(true);
+    };
+    ta.focus();
+  },
+  // блок «Моя рецензия»: пустое состояние → форма → готовая рецензия с кнопками «Изменить» и «Удалить»
+  // o.edit — сразу открыть форму; o.change() — после сохранения и удаления; o.cancel() — «Отмена», если рецензии ещё нет;
+  // o.close() — для диалога: добавляет кнопку «Закрыть» и закрывает диалог после удаления рецензии
+  rvMine(box, id, o = {}) {
+    const it = this.load().find(x => x.id === id); if (!it) { box.innerHTML = ''; box.onclick = null; return; }
+    const go = (edit, changed) => { if (changed && o.change) o.change(); this.rvMine(box, id, { ...o, edit }); };
+    if (o.edit) return this.rvForm(box, id, ok => { if (ok) go(false, true); else if (!this.hasRv(it) && o.cancel) o.cancel(); else go(false, false); });
+    if (!this.hasRv(it)) {
+      box.innerHTML = '<div class="rv-empty"><span>У вас пока нет рецензии на этот фильм.</span><button type="button" class="b edit" data-r="n">✎ Написать рецензию</button></div>';
+      box.onclick = ev => { if (ev.target.closest('[data-r="n"]')) go(true); };
+      return;
+    }
+    box.innerHTML = this.rvView(it, '', true) + `<div class="rv-bar"><small>${it.revPublic ? '🌐 Видна другим пользователям' : '🔒 Видна только вам'}</small><span class="rv-acts"><span class="edit"><button type="button" class="b g" data-r="e">Изменить</button><button type="button" class="b g" data-r="d">Удалить</button></span>${o.close ? '<button type="button" class="b g" data-r="x">Закрыть</button>' : ''}</span></div>`;
+    box.onclick = ev => {
+      const b = ev.target.closest('[data-r]'); if (!b) return;
+      if (b.dataset.r === 'e') go(true);
+      if (b.dataset.r === 'x' && o.close) o.close();
+      if (b.dataset.r === 'd' && confirm('Удалить рецензию?')) {
+        this.update(id, { review: '', revTone: '', revSpoiler: false, revPublic: false, revAt: 0 });
+        if (o.close) { if (o.change) o.change(); o.close(); } else go(false, true);
+      }
+    };
+  },
   // свободные фильмы: открытые проекты Blender Foundation (CC BY) и «Носферату» (1922, общественное достояние)
   DEMO: [
     { title: 'Big Buck Bunny', year: '2008', director: 'Sacha Goedegebure', genres: ['Анимация', 'Комедия'], runtime: 10, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
@@ -150,3 +216,8 @@ const KP = {
   SRC: { stream: 'Стриминг', local: 'Локальный файл', disc: 'Диск / носитель' },
   TY: { movie: 'Фильм', tv: 'Сериал', doc: 'Документальный' }
 };
+// спойлер в рецензии открывается по кнопке «показать» (работает на любой странице)
+document.addEventListener('click', ev => {
+  const b = ev.target.closest && ev.target.closest('.rv-sp'); if (!b) return;
+  const t = b.parentNode.querySelector('.rv-t'); if (t) t.classList.remove('spoil'); b.remove();
+});

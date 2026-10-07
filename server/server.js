@@ -88,6 +88,14 @@ route('PUT', '/api/library', ({ res, uid, body }) => {
   send(res, 200, { ok: true });
 }, true, 10e6);
 
+// --- рецензии: другим отдаются только те, у которых автор сам включил «Показывать другим пользователям» (revPublic) ---
+const TONES = ['pos', 'neu', 'neg'];
+const pubReview = d => {
+  if (!d.revPublic || !String(d.review || '').trim()) return null;
+  return { review: String(d.review).trim().slice(0, 3000), revTone: TONES.includes(d.revTone) ? d.revTone : '', revSpoiler: !!d.revSpoiler,
+    revAt: Number(d.revAt) || 0, rating: Math.max(0, Math.min(5, Math.round(Number(d.rating)) || 0)) };
+};
+
 // --- подборки: фильмы пользователя с одним названием в поле «collection»; открыть для всех можно в профиле ---
 const CN = "json_extract(i.data,'$.collection')";
 route('GET', '/api/my/collections', ({ res, uid }) => send(res, 200, db.prepare(
@@ -114,10 +122,10 @@ route('GET', '/api/collections', ({ res, q }) => {
 route('GET', '/api/collections/:uid/:name', ({ res, p }) => {
   const c = db.prepare('SELECT * FROM collections WHERE user_id = ? AND name = ? AND public = 1').get(Number(p[0]), p[1]);
   if (!c) return err(res, 404, 'Подборка не найдена или закрыта автором');
-  // личные поля (ссылки, рецензии, статусы, инв. номера) наружу не отдаём
+  // личные поля (ссылки, статусы, инв. номера) наружу не отдаём; рецензия уходит только с разрешения автора (pubReview)
   const items = db.prepare(`SELECT data FROM items i WHERE i.user_id = ? AND ${CN} = ?`).all(c.user_id, c.name).map(r => {
-    const d = JSON.parse(r.data);
-    return { title: d.title, year: d.year, type: d.type, poster: d.poster, tmdb: d.tmdb, imdb: d.imdb, genres: d.genres, director: d.director, runtime: d.runtime, seasons: d.seasons, overview: d.overview };
+    const d = JSON.parse(r.data), pr = pubReview(d);
+    return { title: d.title, year: d.year, type: d.type, poster: d.poster, tmdb: d.tmdb, imdb: d.imdb, genres: d.genres, director: d.director, runtime: d.runtime, seasons: d.seasons, overview: d.overview, ...(pr ? { pubReview: pr } : {}) };
   });
   send(res, 200, { name: c.name, descr: c.descr, uid: c.user_id, owner: db.prepare('SELECT username FROM users WHERE id = ?').get(c.user_id).username, items });
 });
@@ -126,6 +134,20 @@ route('GET', '/api/users/:name', ({ res, p }) => {
   if (!u) return err(res, 404, 'Пользователь не найден');
   const cols = db.prepare(`SELECT c.name, c.descr, (SELECT COUNT(*) FROM items i WHERE i.user_id = c.user_id AND ${CN} = c.name) n FROM collections c WHERE c.user_id = ? AND c.public = 1`).all(u.id).filter(c => c.n);
   send(res, 200, { ...u, collections: cols });
+});
+// публичные рецензии на фильм: ищем по TMDB ID (+тип), IMDb ID, ID Кинопоиска, а у ручных карточек — по названию и году
+route('GET', '/api/reviews', ({ res, q }) => {
+  const tmdb = Number(q.get('tmdb')) || 0, tv = q.get('type') === 'tv', imdb = q.get('imdb') || '', kp = Number(q.get('kp')) || 0;
+  const title = String(q.get('title') || '').trim().toLowerCase(), year = String(q.get('year') || '').trim();
+  if (!tmdb && !imdb && !kp && !title) return send(res, 200, []);
+  const same = d => (tmdb && d.tmdb === tmdb && (d.type === 'tv') === tv) || (imdb && d.imdb === imdb) || (kp && d.kpId === kp) ||
+    (title && String(d.title || '').trim().toLowerCase() === title && String(d.year || '') === year);
+  const out = [];
+  for (const r of db.prepare(`SELECT u.username, i.data FROM items i JOIN users u ON u.id = i.user_id WHERE json_extract(i.data,'$.revPublic') = 1`).all()) {
+    const d = JSON.parse(r.data), pr = pubReview(d);
+    if (pr && same(d)) out.push({ user: r.username, ...pr });
+  }
+  send(res, 200, out.sort((a, b) => b.revAt - a.revAt).slice(0, 50));
 });
 
 // --- Кинопоиск (kinopoisk.dev): запросы идут через сервер, ключ в браузер не попадает ---
