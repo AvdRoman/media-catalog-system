@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Просмотр - Kinoproba</title>
+<link rel="stylesheet" href="css/main.css"><link rel="stylesheet" href="css/library.css">
+</head>
+<body><div class="wrapper">
+<header class="container">
+  <a href="index.html" class="logo">KINOPROBA</a>
+  <nav><ul>
+    <li><a href="index.html">Home</a></li><li><a href="library.html">Библиотека</a></li>
+    <li><a href="community.html">Подборки</a></li><li><a href="profile.html" id="me">Войти</a></li>
+  </ul></nav>
+</header>
+
+<main class="container movie-page">
+  <div class="movie-poster"><img id="img" src="https://via.placeholder.com/300x450?text=..." alt="Постер"></div>
+  <div class="movie-info">
+    <h1 id="title">Загрузка…</h1>
+    <div class="movie-meta"><span id="year"></span> — <span id="genre"></span></div>
+    <p id="desc"></p>
+
+    <div class="ctl" id="ctl"></div>
+
+    <div class="tabs">
+      <button class="b on" data-tab="trailer">Трейлер</button>
+      <button class="b" data-tab="file">Файл с устройства</button>
+      <button class="b" data-tab="full">Полная версия</button>
+      <button class="b" data-tab="link">Своя ссылка</button>
+    </div>
+    <div class="player" id="player"></div>
+    <div class="own" id="own"></div>
+  </div>
+</main></div>
+
+<script src="js/app.js"></script>
+<script>
+const $ = s => document.querySelector(s), e = KP.esc, P = new URLSearchParams(location.search);
+KP.nav();
+let item = KP.load().find(i => i.id === P.get('lib')) || null;
+let tm = P.get('id') || (item && item.tmdb) || null, type = P.get('t') || (item && item.type === 'tv' ? 'tv' : 'movie'), info = null;
+
+async function init() {
+  if (P.get('imdb') && !tm) { try { const f = await KP.tmdb('/find/' + P.get('imdb'), '&external_source=imdb_id'); const r = f.movie_results[0] || f.tv_results[0]; if (r) { tm = r.id; type = f.movie_results[0] ? 'movie' : 'tv'; } } catch (err) {} }
+  if (item && !tm) { info = item; fill(item); }
+  if (tm) {
+    try { info = await KP.fromTmdb(tm, type); fill(info); }
+    catch (err) { if (!item) { $('#title').textContent = 'Не удалось загрузить фильм (' + err.message + ').'; $('#desc').innerHTML = 'Причину покажет <a href="check.html" style="color:#ffb3b3">страница диагностики</a>.'; } else fill(item); }
+  }
+  if (!item && info) item = KP.load().find(i => i.tmdb === +tm) || KP.find(KP.load(), info.title, info.year) || null;
+  controls(); tab(item && item.source === 'stream' && item.url ? 'link' : 'trailer');
+}
+function fill(m) {
+  document.title = m.title + ' - Kinoproba';
+  $('#title').textContent = m.title; $('#year').textContent = m.year || '----';
+  $('#genre').textContent = (m.genres || []).join(', ') || KP.TY[m.type] || '';
+  const old = document.querySelector('.movie-meta a'); if (old) old.remove();
+  if (m.imdb) document.querySelector('.movie-meta').insertAdjacentHTML('beforeend', ` — <a href="https://www.imdb.com/title/${m.imdb}/" target="_blank" rel="noopener" style="color:#fff">IMDb</a>`);
+  $('#desc').textContent = m.overview || (item && item.review) || 'Описание отсутствует.';
+  if (m.poster) $('#img').src = m.poster;
+}
+// статус и оценка прямо на странице фильма
+function controls() {
+  const c = $('#ctl');
+  if (!item) { c.innerHTML = '<button class="b" id="add">+ В библиотеку</button>'; $('#add').onclick = () => { item = KP.add(info).item || KP.find(KP.load(), info.title, info.year); controls(); }; return; }
+  c.innerHTML = `<select id="st">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === item.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <span class="stars">${[1, 2, 3, 4, 5].map(n => `<span data-n="${n}" class="${n <= item.rating ? 'on' : ''}">★</span>`).join('')}</span>
+    <a class="b g" href="library.html">В библиотеку</a>`;
+  $('#st').onchange = ev => { KP.update(item.id, { status: ev.target.value }); item.status = ev.target.value; };
+  c.querySelector('.stars').onclick = ev => { const n = +ev.target.dataset.n; if (!n) return; item.rating = item.rating === n ? 0 : n; KP.update(item.id, { rating: item.rating }); controls(); };
+}
+// вкладки плеера
+document.querySelector('.tabs').onclick = ev => { const t = ev.target.dataset.tab; if (t) tab(t); };
+function tab(t) {
+  document.querySelectorAll('.tabs .b').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  $('#own').innerHTML = ''; const pl = $('#player'); pl.style.overflow = '';
+  if (t === 'trailer') trailer(pl);
+  if (t === 'full') full(pl);
+  if (t === 'file') {
+    pl.innerHTML = '<div class="empty">Выберите видеофайл (MP4, WebM, MOV; MKV и AVI зависят от браузера). Файл не загружается на сервер.</div>';
+    $('#own').innerHTML = '<input type="file" id="vf" accept="video/*,.mkv,.avi">';
+    $('#vf').onchange = ev => { const f = ev.target.files[0]; if (f) video(URL.createObjectURL(f), 'f:' + f.name + f.size); };
+  }
+  if (t === 'link') {
+    pl.innerHTML = '<div class="empty">Вставьте прямую ссылку на видео (.mp4, .webm) или адрес встраиваемого плеера вашего сервиса.</div>';
+    $('#own').innerHTML = `<input id="lu" placeholder="https://…" value="${e(item && item.source === 'stream' ? item.url : '')}"><button class="b" id="lb">Открыть</button>`;
+    $('#lb').onclick = () => {
+      const u = $('#lu').value.trim(); if (!/^https:\/\//.test(u)) { alert('Нужна ссылка, начинающаяся с https://'); return; }
+      if (item) KP.update(item.id, { url: u });
+      /\.(mp4|webm|ogg)(\?|$)/i.test(u) ? video(u, 'u:' + u) : pl.innerHTML = `<iframe src="${e(u)}" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>`;
+    };
+    if ($('#lu').value) $('#lb').click();
+  }
+}
+const REG = { RU: 'Россия', US: 'США', SE: 'Швеция', DE: 'Германия', GB: 'Великобритания', KZ: 'Казахстан', BY: 'Беларусь' };
+async function full(pl) {
+  if (!tm) { pl.innerHTML = '<div class="empty">Для этой записи нет данных TMDB. Откройте «Файл» или «Своя ссылка».</div>'; return; }
+  const reg = localStorage.getItem('kp_reg') || 'RU';
+  $('#own').innerHTML = `<select id="rg" class="b g">${Object.entries(REG).map(([k, v]) => `<option value="${k}" ${k === reg ? 'selected' : ''}>${v}</option>`).join('')}</select>` +
+    (info && info.imdb ? `<a class="b g" target="_blank" rel="noopener" href="https://www.imdb.com/title/${info.imdb}/">Страница на IMDb</a>` : '');
+  $('#rg').onchange = ev => { localStorage.setItem('kp_reg', ev.target.value); full(pl); };
+  pl.innerHTML = '<div class="empty">Ищем, где смотреть…</div>';
+  try {
+    const r = (await KP.tmdb(`/${type}/${tm}/watch/providers`, '', 'ru-RU')).results[reg];
+    const grp = [['flatrate', 'По подписке'], ['free', 'Бесплатно'], ['rent', 'Аренда'], ['buy', 'Покупка']].filter(g => r && r[g[0]]);
+    pl.style.overflow = 'auto';
+    pl.innerHTML = grp.length ? `<div style="padding:20px;line-height:1.9">${grp.map(([k, n]) => `<b>${n}:</b> ${r[k].map(p => e(p.provider_name)).join(', ')}<br>`).join('')}
+      <a class="b" style="display:inline-block;margin-top:12px" target="_blank" rel="noopener" href="${e(r.link)}">Открыть и выбрать сервис</a>
+      <p style="color:#aaa;font-size:13px;margin-top:10px">Данные TMDB / JustWatch. Если у вас есть файл или своя ссылка, они открываются во вкладках выше.</p></div>`
+      : '<div class="empty">В выбранной стране нет данных о легальных сервисах для этого названия. Смените страну или откройте «Файл» / «Своя ссылка».</div>';
+  } catch (err) { pl.innerHTML = '<div class="empty">Не удалось получить список сервисов. Проверьте интернет.</div>'; }
+}
+async function trailer(pl) {
+  pl.innerHTML = '<div class="empty">Ищем трейлер…</div>';
+  if (!tm) { pl.innerHTML = '<div class="empty">У этой записи нет данных TMDB. Откройте вкладку «Файл» или «Своя ссылка».</div>'; return; }
+  try {
+    let v = (await KP.tmdb(`/${type}/${tm}/videos`)).results;
+    if (!v.some(x => x.site === 'YouTube')) v = (await KP.tmdb(`/${type}/${tm}/videos`, '', 'en-US')).results;
+    const y = v.find(x => x.site === 'YouTube' && x.type === 'Trailer') || v.find(x => x.site === 'YouTube');
+    pl.innerHTML = y ? `<iframe src="https://www.youtube-nocookie.com/embed/${y.key}" allowfullscreen allow="fullscreen; picture-in-picture"></iframe>` : '<div class="empty">Трейлер не найден. Откройте вкладку «Файл» или «Своя ссылка».</div>';
+  } catch (err) { pl.innerHTML = '<div class="empty">Не удалось загрузить трейлер. Проверьте интернет.</div>'; }
+}
+// HTML5-плеер: запоминает позицию и ставит статус «В процессе» / «Просмотрено»
+function video(src, key) {
+  const pl = $('#player'); pl.innerHTML = '<video controls autoplay playsinline></video>';
+  const v = pl.firstChild, k = 'kp_pos_' + key; v.src = src;
+  v.onerror = () => pl.innerHTML = '<div class="empty">Браузер не смог воспроизвести этот формат. Попробуйте MP4 (H.264) или WebM.</div>';
+  v.onloadedmetadata = () => { const p = +localStorage.getItem(k); if (p > 5 && p < v.duration - 10) v.currentTime = p; };
+  let last = 0;
+  v.ontimeupdate = () => {
+    if (Date.now() - last < 3000) return; last = Date.now(); localStorage.setItem(k, v.currentTime);
+    if (item && item.status === 'plan') { KP.update(item.id, { status: 'progress' }); item.status = 'progress'; controls(); }
+  };
+  v.onended = () => { localStorage.removeItem(k); if (item) { KP.update(item.id, { status: 'done' }); item.status = 'done'; controls(); } };
+}
+init();
+</script>
+</body></html>

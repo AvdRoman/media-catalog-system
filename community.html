@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Подборки - Kinoproba</title>
+<link rel="stylesheet" href="css/main.css"><link rel="stylesheet" href="css/library.css">
+</head>
+<body><div class="wrapper">
+<header class="container">
+  <a href="index.html" class="logo">KINOPROBA</a>
+  <nav><ul>
+    <li><a href="index.html">Home</a></li><li><a href="library.html">Библиотека</a></li>
+    <li class="active"><a href="community.html">Подборки</a></li><li><a href="profile.html" id="me">Войти</a></li>
+  </ul></nav>
+</header>
+<main class="container">
+  <h1>Подборки пользователей</h1>
+  <div class="tools"><input type="search" id="q" placeholder="Название подборки, автор или фильм внутри…"></div>
+  <div class="grid" id="list" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
+  <div id="view"></div>
+</main></div>
+<script src="js/app.js"></script>
+<script>
+const $ = s => document.querySelector(s), e = KP.esc; let t;
+KP.nav();
+async function search() {
+  try {
+    const r = await KP.api('/collections?q=' + encodeURIComponent($('#q').value.trim().toLowerCase()));
+    $('#list').innerHTML = r.map(c => `<div class="card"><div class="t"><h4>${e(c.name)}</h4>
+      <small>от <a href="profile.html?u=${encodeURIComponent(c.username)}" style="color:#ffb3b3">${e(c.username)}</a> · фильмов: ${c.n}</small><p>${e(c.descr)}</p>
+      <button class="b" data-u="${c.uid}" data-n="${e(c.name)}">Открыть</button></div></div>`).join('') || '<p>Открытых подборок не найдено.</p>';
+  } catch (er) { $('#list').innerHTML = `<p>${e(er.message)}</p>`; }
+}
+$('#q').oninput = () => { clearTimeout(t); t = setTimeout(search, 300); };
+$('#list').onclick = ev => { const b = ev.target.closest('button'); if (b) open(b.dataset.u, b.dataset.n); };
+
+let cur = null;
+async function open(uid, name) {
+  try {
+    cur = await KP.api(`/collections/${uid}/${encodeURIComponent(name)}`);
+    $('#view').innerHTML = `<h2>${e(cur.name)} <small style="color:#bbb">— ${e(cur.owner)}</small></h2><p>${e(cur.descr)}</p>
+      <button class="b" id="cp">+ Добавить всю подборку в мою библиотеку</button>
+      <div class="grid">${cur.items.map(i => `<div class="card"><div class="p" style="${i.poster ? `background-image:url('${e(i.poster)}')` : ''}">${i.poster ? '' : '▶'}</div>
+        <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type] || ''}</small>
+        ${i.tmdb ? `<a class="b g" href="movie.html?id=${i.tmdb}&t=${i.type === 'tv' ? 'tv' : 'movie'}">Открыть</a>` : ''}</div></div>`).join('')}</div>`;
+    $('#cp').onclick = copy; $('#view').scrollIntoView({ behavior: 'smooth' });
+  } catch (er) { alert(er.message); }
+}
+function copy() {
+  if (!KP.tok) { alert('Войдите в аккаунт, чтобы сохранять подборки.'); location.href = 'profile.html'; return; }
+  let n = 0; // копии попадают в «В планах» и в личную (закрытую) подборку
+  cur.items.forEach(i => { if (KP.add({ ...i, w: [], collection: `${cur.name} (${cur.owner})` }).item) n++; });
+  alert(`Добавлено: ${n}, дублей пропущено: ${cur.items.length - n}`);
+}
+const c = new URLSearchParams(location.search).get('c'); // ссылка вида ?c=uid/название
+search(); if (c) { const k = c.indexOf('/'); open(c.slice(0, k), c.slice(k + 1)); }
+</script>
+</body></html>

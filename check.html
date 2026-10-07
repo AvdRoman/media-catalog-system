@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Диагностика - Kinoproba</title>
+<link rel="stylesheet" href="css/main.css"><link rel="stylesheet" href="css/library.css">
+</head>
+<body><div class="wrapper">
+<header class="container">
+  <a href="index.html" class="logo">KINOPROBA</a>
+  <nav><ul>
+    <li><a href="index.html">Home</a></li><li><a href="library.html">Библиотека</a></li>
+    <li><a href="community.html">Подборки</a></li><li><a href="profile.html" id="me">Войти</a></li>
+  </ul></nav>
+</header>
+<main class="container" style="max-width:760px;padding-bottom:60px">
+  <h1>Диагностика</h1>
+  <p style="color:#bbb">Проверяет по шагам, что работает, а что нет. Если что-то отмечено красным, пришлите скриншот этой страницы.</p>
+  <div id="out"></div>
+</main></div>
+<script src="js/app.js"></script>
+<script>
+KP.nav();
+const out = document.getElementById('out');
+function row(title) {
+  const d = document.createElement('div'); d.className = 'card'; d.style.cssText = 'padding:16px 20px;margin:12px 0';
+  const h = document.createElement('b'), p = document.createElement('div'); p.style.marginTop = '6px';
+  h.textContent = '⏳ ' + title; d.appendChild(h); d.appendChild(p); out.appendChild(d);
+  return (ok, text) => { h.textContent = (ok ? '✅ ' : '❌ ') + title; p.textContent = text; p.style.color = ok ? '#bbb' : '#ffb3b3'; };
+}
+const limit = (p, ms = 8000) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('таймаут ' + ms / 1000 + ' с')), ms))]);
+
+(async () => {
+  // 1. версия js/app.js
+  let r = row('Файл js/app.js обновлён');
+  if (typeof KP.tmdbUrl === 'string') r(true, 'Новая версия, адрес TMDB: ' + KP.tmdbUrl);
+  else r(false, 'Старая версия: запросы к TMDB уходят на неверный адрес. Замените js/app.js файлом из нового архива и нажмите Ctrl+F5.');
+
+  // 2. сервер проекта
+  r = row('Сервер Kinoproba (регистрация, библиотека)');
+  try {
+    const x = await limit(fetch('/api/collections?q=')); let j = null; try { j = await x.json(); } catch (e) {}
+    if (x.ok && Array.isArray(j)) r(true, 'Сервер отвечает: ' + location.origin);
+    else r(false, 'Ответ ' + x.status + ': это не сервер проекта. Запустите «node server.js» в папке server и откройте http://localhost:3000/check.html');
+  } catch (e) { r(false, 'Нет связи с сервером (' + e.message + '). Запущен ли «node server.js»?'); }
+
+  // 3. TMDB: данные
+  r = row('TMDB: данные о фильмах (описания, жанры)');
+  let poster = '';
+  try {
+    const x = await limit(fetch(`https://api.themoviedb.org/3/movie/popular?api_key=${KP.key}&language=ru-RU`));
+    if (x.status === 401) r(false, 'TMDB отклонил ключ (код 401). Получите свой ключ на themoviedb.org (Настройки → API) и вставьте его в js/app.js (поле key) и в index.html (TMDB_API_KEY).');
+    else if (!x.ok) r(false, 'TMDB ответил кодом ' + x.status + '.');
+    else { const j = await x.json(); poster = (j.results.find(m => m.poster_path) || {}).poster_path || ''; r(true, 'TMDB отвечает, ключ принят.'); }
+  } catch (e) { r(false, 'Браузер не достучался до api.themoviedb.org (' + e.message + '). Обычно это блокировка провайдером, VPN, антивирус или нет интернета.'); }
+
+  // 4. TMDB: картинки
+  r = row('TMDB: постеры');
+  if (!poster) r(false, 'Пропущено: сначала должен заработать предыдущий шаг.');
+  else {
+    const ok = await limit(new Promise(res => { const im = new Image(); im.onload = () => res(true); im.onerror = () => res(false); im.src = KP.img + poster; })).catch(() => false);
+    ok ? r(true, 'Картинки загружаются.') : r(false, 'Сервер картинок image.tmdb.org недоступен из вашей сети (его часто блокируют отдельно от API).');
+  }
+})();
+</script>
+</body></html>
