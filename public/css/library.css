@@ -78,3 +78,21 @@ dialog label.b { display: block; text-align: center; margin: 0; color: #fff; fon
   .mk-poster .b { align-self: center; flex: 1; }
   .two { grid-template-columns: 1fr; gap: 0; }
 }
+/* отчёт о недосмотренном */
+.un-sum{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 14px}
+.un-sum div{background:rgba(0,0,0,.45);border-radius:18px;padding:12px 18px}
+.un-sum b{display:block;font-size:22px}
+.un-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:rgba(0,0,0,.45);border-radius:18px;padding:14px 18px;margin-bottom:10px}
+.un-main{flex:1 1 260px;min-width:0}
+.un-main a{color:#fff}
+.un-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.12);margin:6px 0 3px;overflow:hidden}
+.un-bar i{display:block;height:100%;background:#d70000}
+.un-side{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.un-badge{padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;color:#fff}
+.un-badge.ok{background:#1f6f3a}
+.un-badge.mid{background:#9a6700}
+.un-badge.bad{background:#b62324}
+.un-acts{display:flex;gap:6px;flex-wrap:wrap}
+.un-plans{margin:14px 0;color:#bbb}
+.un-plans a{color:#fff;text-decoration:underline}
+@media (max-width:560px){.un-side{align-items:flex-start}.un-acts .b{flex:1}}

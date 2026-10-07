@@ -37,7 +37,9 @@
     <select id="so"><option value="added">Сначала новые</option><option value="title">По названию</option><option value="rating">По оценке</option><option value="year">По году</option></select>
   </div>
 
-  <div class="grid" id="grid"></div>
+    <div class="grid" id="grid"></div>
+  <h2 id="unf-h">Недосмотренное</h2>
+  <div id="unf"></div>
   <h2>Аналитика</h2>
   <div class="stats" id="stats"></div>
 </main></div>
@@ -128,7 +130,7 @@ function render() {
   const so = $('#so').value;
   a.sort((x, y) => so === 'title' ? x.title.localeCompare(y.title) : so === 'rating' ? y.rating - x.rating : so === 'year' ? y.year - x.year : y.added - x.added);
   $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB или вручную.</p>';
-  remind(L); stats(L);
+    remind(L); report(L); stats(L);
 }
 function card(i) {
   const link = `movie.html?lib=${i.id}`;
@@ -161,6 +163,45 @@ function remind(L) {
   $('#remind').innerHTML = (p.length ? `<div class="remind">Не досмотрено: ${p.map(li).join(', ')}</div>` : '') +
     (w.length ? `<div class="remind">Давно в планах: ${w.slice(0, 6).map(li).join(', ')}${w.length > 6 ? ' и ещё ' + (w.length - 6) : ''}</div>` : '');
 }
+
+// отчёт о недосмотренном
+const DAY = 864e5;
+const lvl = d => d > 60 ? 'bad' : d > 14 ? 'mid' : 'ok', ago = d => d < 1 ? 'сегодня' : d + ' дн. назад';
+function bump(id) { // отметить следующую серию без открытия диалога
+  const it = KP.load().find(x => x.id === id), w = it.w || [];
+  for (const s of it.seasons || []) for (let k = 1; k <= s.c; k++)
+    if (!w.includes(code(s.n, k))) { KP.update(id, epSync(it, [...w, code(s.n, k)])); return true; }
+  return false;
+}
+
+function report(L) {
+  const n = Date.now();
+  const a = L.filter(i => i.status === 'progress').map(i => {
+    const tot = i.type === 'tv' ? epTotal(i) : 0, seen = (i.w || []).length, frac = tot ? Math.min(1, seen / tot) : 0;
+    return { i, tot, seen, frac, days: Math.floor((n - (i.upd || i.added || n)) / DAY) };
+  }).sort((x, y) => y.days - x.days);
+  const plans = L.filter(i => i.status === 'plan' && n - i.added > 30 * DAY);
+  const bad = a.filter(r => r.days > 60).length;
+  const row = r => `<div class="un-row" data-id="${r.i.id}">
+    <div class="un-main"><a href="movie.html?lib=${r.i.id}"><b>${e(r.i.title)}</b></a> <small>${KP.TY[r.i.type]} · ${e(r.i.year)}</small>
+      ${r.tot ? `<div class="un-bar"><i style="width:${r.frac * 100}%"></i></div><small>${r.seen} из ${r.tot} серий${r.i.progress ? ' · ' + e(r.i.progress) : ''}</small>` : '<br><small>Начато, но не завершено</small>'}</div>
+    <div class="un-side"><span class="un-badge ${lvl(r.days)}">${ago(r.days)}</span></div>
+    <div class="un-acts edit">
+      ${r.tot ? '<button class="b" data-u="next">+ серия</button>' : `<a class="b" href="movie.html?lib=${r.i.id}">▶ Продолжить</a>`}
+      <button class="b g" data-u="done">✓ Просмотрено</button><button class="b g" data-u="plan">В планы</button>
+    </div></div>`;
+  $('#unf').innerHTML = a.length
+    ? `<div class="un-sum"><div><b>${a.length}</b>незавершённых</div><div><b>${bad}</b>заброшено 60+ дней</div></div>` + a.map(row).join('')
+    : '<p>Незавершённого нет: всё, что начато, досмотрено.</p>';
+  if (plans.length) $('#unf').innerHTML += `<p class="un-plans">Давно в планах (${plans.length}): ${plans.slice(0, 8).map(x => `<a href="movie.html?lib=${x.id}">${e(x.title)}</a>`).join(', ')}${plans.length > 8 ? ' и ещё ' + (plans.length - 8) : ''}</p>`;
+}
+$('#unf').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-u]'); if (!b) return;
+  const id = b.closest('.un-row').dataset.id, u = b.dataset.u;
+  if (u === 'next') { if (!bump(id)) KP.update(id, { status: 'done' }); } else KP.update(id, { status: u });
+  render();
+});
+
 // аналитика
 function bars(m, fmt = v => v) {
   const e2 = Object.entries(m), mx = Math.max(1, ...e2.map(x => x[1]));
