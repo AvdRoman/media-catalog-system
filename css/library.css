@@ -48,3 +48,33 @@ dialog input, dialog select, dialog textarea { width: 100%; margin-top: 4px; }
 .eps input { width: auto; margin: 0; }
 dialog details { margin: 6px 0; } dialog summary { cursor: pointer; padding: 6px 0; }
 .card .acts { flex-wrap: wrap; }
+/* форма создания / правки карточки */
+dialog [hidden] { display: none !important; }
+#dEdit { width: min(720px, 94vw); max-height: 92vh; overflow: auto; }
+.seg { display: flex; gap: 6px; margin: 12px 0 4px; }
+dialog .seg label { flex: 1; margin: 0; cursor: pointer; position: relative; }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.seg span { display: block; text-align: center; padding: 9px 8px; border-radius: 10px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); color: #fff; font-size: 14px; }
+.seg input:checked + span { background: #d70000; border-color: #d70000; }
+.seg input:focus-visible + span { outline: 2px solid #fff; outline-offset: 2px; }
+.mk { display: grid; grid-template-columns: 150px 1fr; gap: 18px; margin-top: 8px; }
+.mk-poster { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.pv { aspect-ratio: 2 / 3; border-radius: 12px; background: #2a0e0e center / cover no-repeat; display: flex; align-items: center; justify-content: center; font-size: 36px; color: #740000; border: 1px dashed rgba(255,255,255,.25); }
+dialog label.b { display: block; text-align: center; margin: 0; color: #fff; font-size: 14px; }
+.mk-poster .b { font-size: 14px; padding: 8px 10px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 20px; padding: 3px 11px; font: inherit; font-size: 12px; cursor: pointer; }
+.chip.on { background: #d70000; border-color: #d70000; }
+.hint { display: block; color: #aaa; font-size: 12px; margin-top: 6px; }
+.ferr { color: #ffb3b3; margin-top: 12px; min-height: 1.4em; font-size: 14px; }
+.fact { display: flex; gap: 8px; margin-top: 4px; }
+#fEdit details { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 6px; }
+.card.fresh { outline: 2px solid #d70000; outline-offset: 2px; }
+@media (max-width: 560px) {
+  .mk { grid-template-columns: 1fr; }
+  .mk-poster { flex-direction: row; align-items: flex-start; }
+  .mk-poster .pv { width: 90px; flex: none; }
+  .mk-poster .b { align-self: center; flex: 1; }
+  .two { grid-template-columns: 1fr; gap: 0; }
+}

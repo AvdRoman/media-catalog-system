@@ -22,7 +22,7 @@
 
   <div class="addbar edit">
     <button class="b" id="addTmdb">Найти в TMDB</button>
-    <button class="b g" id="addMan">Добавить вручную</button>
+    <button class="b" id="addMan">Создать свою карточку</button>
     <button class="b g" id="demo">Демо-фильмы (бесплатные)</button>
     <label class="b g">Сканировать папку<input id="scan" type="file" webkitdirectory multiple hidden></label>
     <label class="b g">Импорт JSON<input id="imp" type="file" accept=".json" hidden></label>
@@ -47,7 +47,7 @@
   <h3>Поиск в TMDB</h3>
   <input id="tq" placeholder="Название фильма или сериала" autocomplete="off">
   <div class="sr" id="tres"></div>
-  <button class="b g" style="margin-top:12px" onclick="dTmdb.close()">Закрыть</button>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="b" id="tmMan">Не нашли? Создать карточку</button><button class="b g" onclick="dTmdb.close()">Закрыть</button></div>
 </dialog>
 
 <dialog id="dEp">
@@ -58,21 +58,58 @@
 </dialog>
 
 <dialog id="dEdit"><form id="fEdit" method="dialog">
-  <h3 id="eh">Карточка</h3>
-  <label>Название<input name="title" required></label>
-  <label>Год<input name="year" inputmode="numeric"></label>
-  <label>Режиссёр<input name="director"></label>
-  <label>Жанры (через запятую)<input name="genres"></label>
-  <label>Тип<select name="type"><option value="movie">Фильм</option><option value="tv">Сериал</option><option value="doc">Документальный</option></select></label>
-  <label>Источник<select name="source"><option value="stream">Стриминг</option><option value="local">Локальный файл</option><option value="disc">Диск / носитель</option></select></label>
-  <label>Ссылка или путь<input name="url"></label>
-  <label>Инв. номер / носитель<input name="inv"></label>
-  <label>Длительность, мин (для сериала — всего)<input name="runtime" type="number" min="0"></label>
-  <label>Прогресс (например, S1E5)<input name="progress"></label>
-  <label>Теги (через запятую)<input name="tags" placeholder="Для вечера с семьёй, Хоррор на Хеллоуин"></label>
-  <label>Подборка<input name="collection" list="cols"></label><datalist id="cols"></datalist>
-  <label>Рецензия<textarea name="review" rows="3"></textarea></label>
-  <div style="display:flex;gap:8px;margin-top:14px"><button class="b">Сохранить</button><button type="button" class="b g" onclick="dEdit.close()">Отмена</button></div>
+  <h3 id="eh">Новая карточка</h3>
+  <div class="seg" role="radiogroup" aria-label="Тип">
+    <label><input type="radio" name="type" value="movie" checked><span>Фильм</span></label>
+    <label><input type="radio" name="type" value="tv"><span>Сериал</span></label>
+    <label><input type="radio" name="type" value="doc"><span>Документальный</span></label>
+  </div>
+
+  <div class="mk">
+    <div class="mk-poster">
+      <div class="pv" id="pv" aria-label="Предпросмотр постера">▶</div>
+      <label class="b g">Загрузить постер<input type="file" id="pf" accept="image/jpeg,image/png,image/webp,image/gif" hidden></label>
+      <button type="button" class="b g" id="pclr" hidden>Убрать постер</button>
+    </div>
+    <div>
+      <label>Название *<input name="title" required autofocus autocomplete="off"></label>
+      <div class="two">
+        <label>Год выхода<input name="year" inputmode="numeric" maxlength="4" placeholder="1999" autocomplete="off"></label>
+        <label>Длительность, мин<input name="runtime" type="number" min="0" placeholder="для сериала — всего"></label>
+      </div>
+      <label>Или ссылка на постер<input name="poster" placeholder="https://…/poster.jpg" autocomplete="off"></label>
+      <span class="hint" id="phint" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <label>Жанры (через запятую)<input name="genres" placeholder="драма, триллер" autocomplete="off"></label>
+  <div class="chips" id="gchips"></div>
+  <label>Описание<textarea name="overview" rows="3" placeholder="О чём фильм или сериал"></textarea></label>
+  <div class="two">
+    <label>Режиссёр<input name="director" autocomplete="off"></label>
+    <label>IMDb: ID или ссылка<input name="imdb" placeholder="tt0111161" autocomplete="off"></label>
+  </div>
+  <div id="tvbox" hidden>
+    <label id="snl">Сезоны: сколько серий в каждом<input name="seasons" placeholder="10, 8, 12" autocomplete="off"></label>
+    <span class="hint" id="snh">Сезоны и серии отмечаются кнопкой «Серии» на карточке.</span>
+  </div>
+
+  <div class="two">
+    <label>Теги (через запятую)<input name="tags" placeholder="Для вечера с семьёй, Хоррор на Хеллоуин"></label>
+    <label>Подборка<input name="collection" list="cols"></label><datalist id="cols"></datalist>
+  </div>
+
+  <details>
+    <summary>Источник, прогресс и рецензия</summary>
+    <label>Источник<select name="source"><option value="stream">Стриминг</option><option value="local">Локальный файл</option><option value="disc">Диск / носитель</option></select></label>
+    <label>Ссылка или путь<input name="url"></label>
+    <label>Инв. номер / носитель<input name="inv"></label>
+    <label>Прогресс (например, S1E5)<input name="progress"></label>
+    <label>Рецензия<textarea name="review" rows="3"></textarea></label>
+  </details>
+
+  <p class="ferr" id="ferr" role="alert"></p>
+  <div class="fact"><button class="b" id="fsave">Создать карточку</button><button type="button" class="b g" onclick="dEdit.close()">Отмена</button></div>
 </form></dialog>
 
 <script src="js/app.js"></script>
@@ -97,7 +134,7 @@ function render() {
 function card(i) {
   const link = `movie.html?lib=${i.id}`;
   return `<div class="card" data-id="${i.id}">
-    <div class="p" style="${i.poster ? `background-image:url('${e(i.poster)}')` : ''}">${i.poster ? '' : '▶'}</div>
+    <div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>
     <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type]} · ${KP.SRC[i.source]}${i.inv ? ' · ' + e(i.inv) : ''}</small>
       <div>${i.genres.map(g => `<span class="pill">${e(g)}</span>`).join('')}${i.tags.map(g => `<span class="pill">#${e(g)}</span>`).join('')}</div>
       ${i.progress ? `<small>Прогресс: ${e(i.progress)}</small>` : ''}
@@ -165,22 +202,103 @@ $('#tres').onclick = async ev => {
   alert(r.dup ? `«${r.dup.title}» уже есть в библиотеке. Дубль не создан.` : 'Добавлено в «В планах»');
   dTmdb.close(); render();
 };
-// добавление и правка вручную
+// создание и правка карточки вручную
+const GEN = ['Драма', 'Комедия', 'Боевик', 'Триллер', 'Ужасы', 'Фантастика', 'Фэнтези', 'Приключения', 'Мелодрама', 'Детектив', 'Криминал', 'Мультфильм', 'Семейный', 'Биография', 'История', 'Документальный'];
+const F = $('#fEdit'), E = F.elements;
+let pv = '', pt; // pv — постер карточки: ссылка или data:image (файл с устройства, уменьшен до JPEG)
+const ferr = m => $('#ferr').textContent = m, hint = m => $('#phint').textContent = m;
 $('#addMan').onclick = () => openEdit(null);
+$('#tmMan').onclick = () => { const q = $('#tq').value.trim(); dTmdb.close(); openEdit(null, /^tt\d{7,10}$/.test(q) ? { imdb: q } : { title: q }); };
 $('#demo').onclick = async () => { $('#demo').disabled = true; const n = await KP.demo(); $('#demo').disabled = false; alert(n ? `Добавлено фильмов: ${n}` : 'Демо-фильмы уже в библиотеке'); render(); };
-function openEdit(id) {
-  editId = id; const it = id ? KP.load().find(x => x.id === id) : {}, f = $('#fEdit');
-  $('#eh').textContent = id ? 'Редактирование' : 'Новая запись'; f.reset();
-  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'collection', 'review']) if (f[k] && it[k] !== undefined) f[k].value = it[k];
-  f.genres.value = (it.genres || []).join(', '); f.tags.value = (it.tags || []).join(', '); dEdit.showModal();
+
+// постер: предпросмотр; для ссылки заодно проверяем, что по ней открывается картинка
+function showPoster() {
+  const u = KP.safePoster(pv), box = $('#pv');
+  box.style.backgroundImage = u ? `url('${u}')` : ''; box.textContent = u ? '' : '▶'; $('#pclr').hidden = !pv;
+  clearTimeout(pt);
+  if (/^https?:/i.test(u)) pt = setTimeout(() => {
+    const im = new Image(), cur = pv;
+    im.onload = () => { if (pv === cur) hint(''); };
+    im.onerror = () => { if (pv === cur) hint('По этой ссылке картинка не открывается. Проверьте адрес или загрузите файл.'); };
+    im.src = u;
+  }, 500);
 }
-$('#fEdit').onsubmit = () => {
-  const f = $('#fEdit'), d = { title: f.title.value.trim(), year: f.year.value.trim(), director: f.director.value.trim(), type: f.type.value, source: f.source.value,
-    url: f.url.value.trim(), inv: f.inv.value.trim(), runtime: +f.runtime.value || 0, progress: f.progress.value.trim(), collection: f.collection.value.trim(),
-    review: f.review.value.trim(), genres: csv(f.genres.value), tags: csv(f.tags.value) };
-  if (editId) KP.update(editId, d); else { const r = KP.add(d); if (r.dup) alert('Такая запись уже есть: ' + r.dup.title); }
-  render();
+E.poster.oninput = () => { pv = E.poster.value.trim(); hint(''); ferr(''); showPoster(); };
+$('#pf').onchange = async ev => {
+  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
+  try {
+    pv = await KP.imgToData(file); E.poster.value = ''; ferr(''); showPoster();
+    hint(`Файл загружен и сжат до ${Math.round(pv.length * 0.75 / 1024)} КБ`);
+  } catch (er) { ferr(er.message); }
 };
+$('#pclr').onclick = () => { pv = ''; E.poster.value = ''; hint(''); showPoster(); };
+
+// жанры: быстрый выбор кнопками, список остаётся обычным текстом
+$('#gchips').innerHTML = GEN.map(g => `<button type="button" class="chip">${g}</button>`).join('');
+const genreList = () => csv(E.genres.value);
+function syncChips() {
+  const cur = genreList().map(x => x.toLowerCase());
+  document.querySelectorAll('#gchips .chip').forEach(b => b.classList.toggle('on', cur.includes(b.textContent.toLowerCase())));
+}
+$('#gchips').onclick = ev => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const cur = genreList(), i = cur.findIndex(x => x.toLowerCase() === b.textContent.toLowerCase());
+  i < 0 ? cur.push(b.textContent) : cur.splice(i, 1); E.genres.value = cur.join(', '); syncChips();
+};
+E.genres.oninput = syncChips;
+// жанр пишем так же, как он уже записан в библиотеке («драма» из TMDB и «Драма» не должны давать две строки в аналитике)
+const canon = (arr, L) => {
+  const m = new Map(), k = g => g.toLowerCase();
+  L.forEach(i => (i.genres || []).forEach(g => { if (!m.has(k(g))) m.set(k(g), g); }));
+  return [...new Set(arr.map(g => { if (!m.has(k(g))) m.set(k(g), g); return m.get(k(g)); }))];
+};
+
+// для сериала нужны сезоны; у уже заполненного сезоны правятся кнопкой «Серии» на карточке
+function tvVis() {
+  const it = editId && KP.load().find(x => x.id === editId), has = !!(it && (it.seasons || []).length);
+  $('#tvbox').hidden = E.type.value !== 'tv'; $('#snl').hidden = has; $('#snh').hidden = !has;
+}
+F.addEventListener('change', ev => { if (ev.target.name === 'type') tvVis(); });
+
+function openEdit(id, pre = {}) {
+  editId = id; const it = id ? KP.load().find(x => x.id === id) : pre;
+  $('#eh').textContent = id ? 'Редактирование карточки' : 'Новая карточка'; $('#fsave').textContent = id ? 'Сохранить' : 'Создать карточку';
+  F.reset();
+  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'collection', 'review', 'overview', 'imdb']) if (it[k] !== undefined && it[k] !== null) E[k].value = it[k];
+  E.genres.value = (it.genres || []).join(', '); E.tags.value = (it.tags || []).join(', ');
+  pv = it.poster || ''; E.poster.value = /^https?:/i.test(pv) ? pv : ''; hint(/^data:/i.test(pv) ? 'Постер загружен с устройства' : ''); ferr('');
+  showPoster(); syncChips(); tvVis(); dEdit.showModal();
+}
+F.onsubmit = ev => {
+  const L = KP.load(), bad = m => { ev.preventDefault(); ferr(m); };
+  const title = E.title.value.trim(), year = E.year.value.trim(), imdbRaw = E.imdb.value.trim(), imdb = KP.imdbId(imdbRaw), poster = KP.safePoster(pv);
+  if (!title) return bad('Введите название');
+  if (year && !(/^\d{4}$/.test(year) && +year >= 1880 && +year <= new Date().getFullYear() + 5)) return bad('Год — четыре цифры, например 1999');
+  if (imdbRaw && !imdb) return bad('IMDb: укажите ID вида tt0111161 или ссылку на страницу фильма');
+  if (pv && !poster) return bad('Постер: ссылка должна начинаться с https:// (или загрузите файл)');
+  let seasons = null;
+  if (E.type.value === 'tv' && !$('#snl').hidden && E.seasons.value.trim()) {
+    const n = E.seasons.value.split(/[,;\s]+/).filter(Boolean).map(Number);
+    if (n.some(c => !Number.isInteger(c) || c < 1 || c > 999)) return bad('Сезоны: число серий в каждом через запятую, например 10, 8, 12');
+    seasons = n.map((c, k) => ({ n: k + 1, c }));
+  }
+  const dup = L.find(x => x.id !== editId && x.title.toLowerCase() === title.toLowerCase() && String(x.year) === year);
+  if (dup) return bad(`«${dup.title}»${year ? ' (' + year + ')' : ''} уже есть в библиотеке. Измените название или год.`);
+  const d = { title, year, director: E.director.value.trim(), type: E.type.value, source: E.source.value, url: E.url.value.trim(), inv: E.inv.value.trim(),
+    runtime: +E.runtime.value || 0, progress: E.progress.value.trim(), collection: E.collection.value.trim(), review: E.review.value.trim(),
+    genres: canon(genreList(), L), tags: csv(E.tags.value), overview: E.overview.value.trim(), imdb, poster };
+  if (seasons) d.seasons = seasons;
+  if (editId) { if (!KP.update(editId, d)) return ev.preventDefault(); render(); return; }
+  const r = KP.add({ w: [], ...d });
+  if (!r.item) return ev.preventDefault(); // места в браузере нет — предупреждение уже показано, форма остаётся открытой
+  ['#q', '#fs', '#ft', '#fc'].forEach(s => $(s).value = ''); $('#fr').value = '0'; // чтобы новая карточка не спряталась за фильтрами
+  render(); flash(r.item.id);
+};
+function flash(id) {
+  const c = document.querySelector(`.card[data-id="${id}"]`); if (!c) return;
+  c.classList.add('fresh'); c.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  setTimeout(() => c.classList.remove('fresh'), 2500);
+}
 // сериалы: сезоны и серии (из TMDB или добавленные вручную), прогресс S1E5, статус выставляется сам
 let epId = null;
 const code = (s, k) => 'S' + s + 'E' + k, epTotal = it => (it.seasons || []).reduce((s, x) => s + x.c, 0);

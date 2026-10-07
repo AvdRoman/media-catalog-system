@@ -34,12 +34,12 @@ const session = uid => { const t = crypto.randomBytes(24).toString('hex'); db.pr
 
 // --- мини-роутер ---
 const routes = [];
-const route = (method, pattern, fn, needAuth = false) => routes.push({ method, needAuth, fn, re: new RegExp('^' + pattern.replace(/:\w+/g, '([^/]+)') + '$') });
+const route = (method, pattern, fn, needAuth = false, maxBody = 1e5) => routes.push({ method, needAuth, maxBody, fn, re: new RegExp('^' + pattern.replace(/:\w+/g, '([^/]+)') + '$') });
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
 const err = (res, c, m) => send(res, c, { error: m });
-const readBody = req => new Promise((ok, bad) => {
+const readBody = (req, max) => new Promise((ok, bad) => {
   let n = 0; const ch = [];
-  req.on('data', c => { n += c.length; if (n > 5e6) { bad(new Error('big')); req.destroy(); } else ch.push(c); });
+  req.on('data', c => { n += c.length; if (n > max) { bad(new Error('big')); req.destroy(); } else ch.push(c); });
   req.on('end', () => { try { ok(ch.length ? JSON.parse(Buffer.concat(ch).toString()) : {}); } catch (e) { bad(e); } });
   req.on('error', bad);
 });
@@ -81,7 +81,7 @@ route('PUT', '/api/library', ({ res, uid, body }) => {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   send(res, 200, { ok: true });
-}, true);
+}, true, 10e6);
 
 // --- подборки: фильмы пользователя с одним названием в поле «collection»; открыть для всех можно в профиле ---
 const CN = "json_extract(i.data,'$.collection')";
@@ -142,17 +142,18 @@ http.createServer(async (req, res) => {
   if (!u.pathname.startsWith('/api/')) return serveStatic(u, res);
   const r = routes.find(r => r.method === req.method && r.re.test(u.pathname));
   if (!r) return err(res, 404, 'Не найдено');
-  let body; try { body = await readBody(req); } catch (e) { return err(res, 400, 'Некорректный запрос'); }
-  const ctx = { req, res, body, q: u.searchParams, p: u.pathname.match(r.re).slice(1).map(decodeURIComponent) };
+  let uid;
   try {
     if (r.needAuth) {
       const t = (req.headers.authorization || '').slice(7);
       const s = t && db.prepare('SELECT user_id FROM sessions WHERE token = ? AND created > ?').get(t, Date.now() - DAY30);
-      if (!s) return err(res, 401, 'Нужно войти в аккаунт');
-      ctx.uid = s.user_id;
+      if (!s) { req.resume(); return err(res, 401, 'Нужно войти в аккаунт'); }
+      uid = s.user_id;
     }
-    r.fn(ctx);
-  } catch (e) { console.error(e); err(res, 500, 'Ошибка сервера'); }
+  } catch (e) { console.error(e); return err(res, 500, 'Ошибка сервера'); }
+  let body; try { body = await readBody(req, r.maxBody); } catch (e) { return err(res, 400, 'Некорректный запрос'); }
+  const ctx = { req, res, body, uid, q: u.searchParams, p: u.pathname.match(r.re).slice(1).map(decodeURIComponent) };
+  try { r.fn(ctx); } catch (e) { console.error(e); err(res, 500, 'Ошибка сервера'); }
 }).listen(process.env.PORT || 3000, () => {
   const port = process.env.PORT || 3000;
   console.log('Kinoproba: http://localhost:' + port);
