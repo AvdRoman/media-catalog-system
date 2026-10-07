@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kinoproba - Онлайн Кинотеатр</title>
+    <link rel="stylesheet" href="css/main.css">
+    <style>
+/* home.css — подключать ПОСЛЕ main.css, только на index.html.
+   Всё завязано на body.home, поэтому другие страницы не затрагиваются. */
+body.home{
+  --red:#d70000; --red-d:#740000; --glass:rgba(255,255,255,.07); --line:rgba(255,255,255,.14); --muted:#cbb8b8;
+}
+body.home .wrapper{
+  background:radial-gradient(900px 600px at 90% -5%,#8a0000 0%,transparent 60%),
+             linear-gradient(135deg,#000 0%,#750000 100%);
+  background-attachment:fixed;
+}
+body.home .container{width:min(1280px,92%)}
+
+/* ---------- ШАПКА ---------- */
+body.home header{
+  position:sticky; top:14px; z-index:100; margin:14px auto 0; padding:12px 26px; gap:24px;
+  background:rgba(15,0,0,.6); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--line); border-radius:999px;
+}
+body.home header nav{width:auto; margin:0 auto}
+body.home header nav ul{gap:6px}
+body.home header nav ul li a{display:block; padding:8px 16px; border-radius:999px; font-size:15px; color:var(--muted); transition:.25s}
+body.home header nav ul li:not(.btn) a:hover{color:#fff; background:var(--glass); border-bottom:0}
+body.home header nav ul li.active::after{display:none}
+body.home header nav ul li.active a{color:#fff; background:rgba(215,0,0,.28); box-shadow:inset 0 0 0 1px rgba(255,80,70,.5)}
+body.home header nav ul li.btn a{background:var(--red); color:#fff; padding:8px 18px; border-radius:999px}
+body.home header nav ul li.btn a:hover{background:var(--red-d)}
+body.home .search-container{width:240px}
+body.home .search-box input{border-radius:999px; padding:10px 18px; font-size:14px}
+body.home .search-results{top:52px; border:1px solid var(--line); border-radius:16px}
+
+/* ---------- HERO ---------- */
+.h-hero{display:grid; grid-template-columns:1.05fr .95fr; gap:40px; align-items:center; padding:90px 0 50px}
+.h-tag{display:inline-block; padding:6px 16px; border-radius:999px; font-size:12px; letter-spacing:.16em;
+  text-transform:uppercase; color:#ff6a5f; border:1px solid rgba(255,90,80,.45); background:rgba(215,0,0,.12)}
+.h-info h1{font-size:clamp(38px,5.4vw,66px); line-height:1.08; font-weight:800; margin:22px 0}
+.h-info h1 em{font-style:normal; background:linear-gradient(90deg,#ff6a5f,#d70000); -webkit-background-clip:text; background-clip:text; color:transparent}
+.h-info p{color:var(--muted); max-width:520px; line-height:1.75; font-size:17px}
+.h-cta{display:flex; gap:14px; margin-top:32px; flex-wrap:wrap}
+.h-btn{display:inline-block; padding:14px 30px; border-radius:999px; font-weight:600; color:#fff; transition:.25s; border:1px solid transparent}
+.h-btn.primary{background:linear-gradient(135deg,var(--red),#9a0000); box-shadow:0 10px 30px rgba(215,0,0,.4)}
+.h-btn.primary:hover{transform:translateY(-3px); box-shadow:0 16px 36px rgba(215,0,0,.55)}
+.h-btn.ghost{background:var(--glass); border-color:var(--line)}
+.h-btn.ghost:hover{border-color:#ff5a4f}
+
+.h-stack{position:relative; height:440px}
+.h-stack .poster{position:absolute; width:230px; aspect-ratio:2/3; border-radius:20px; overflow:hidden;
+  border:1px solid var(--line); box-shadow:0 30px 60px rgba(0,0,0,.65); transition:.4s; background:#190909}
+.h-stack .poster img{width:100%; height:100%; object-fit:cover; display:block}
+.h-stack .poster:nth-child(1){left:0; top:50px; transform:rotate(-8deg)}
+.h-stack .poster:nth-child(2){left:30%; top:0; z-index:2; transform:rotate(2deg) scale(1.08)}
+.h-stack .poster:nth-child(3){right:0; top:70px; transform:rotate(9deg)}
+.h-stack:hover .poster:nth-child(1){transform:rotate(-12deg) translateX(-14px)}
+.h-stack:hover .poster:nth-child(3){transform:rotate(13deg) translateX(14px)}
+
+/* ---------- ПОПУЛЯРНЫЕ ---------- */
+body.home .trending{padding-top:50px}
+body.home .section-title{font-size:30px; font-weight:700}
+body.home .section-title::after{content:""; display:block; width:50px; height:4px; margin-top:10px; border-radius:4px; background:linear-gradient(90deg,var(--red),transparent)}
+body.home .trending .movies{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:26px; padding:36px 0}
+body.home .trending .movies .block{width:auto; position:relative}
+body.home .trending .movies .block a{display:block; color:#fff}
+body.home .trending .movies img{height:auto; aspect-ratio:2/3; border-radius:20px; border:1px solid var(--line)}
+body.home .trending .movies img:hover{transform:translateY(-10px) scale(1.02); box-shadow:0 18px 40px rgba(215,0,0,.45); border-color:rgba(255,90,80,.6)}
+body.home .trending .movies span{margin-top:14px; font-size:15px; font-weight:500}
+.rate{position:absolute; top:12px; left:12px; z-index:2; padding:4px 11px; border-radius:999px; font-size:13px; font-weight:600;
+  background:rgba(0,0,0,.65); backdrop-filter:blur(6px)}
+.rate i{color:#ffb400; font-style:normal}
+
+/* ---------- ВОЗМОЖНОСТИ ---------- */
+body.home .big-text{max-width:900px; padding:60px 0 20px}
+body.home .big-text h2{font-size:clamp(28px,4vw,42px); font-weight:800; line-height:1.2}
+body.home .big-text p{font-size:17px; font-weight:400; color:var(--muted); margin-top:16px; line-height:1.7}
+.feats{display:grid; grid-template-columns:repeat(4,1fr); gap:20px; padding:30px 0 40px}
+.feat{display:block; color:#fff; padding:28px 24px; border-radius:20px; background:var(--glass); border:1px solid var(--line); transition:.3s}
+.feat:hover{transform:translateY(-6px); border-color:rgba(255,90,80,.6); background:rgba(215,0,0,.12)}
+.feat .ic{width:48px; height:48px; display:grid; place-items:center; border-radius:14px; font-size:22px; margin-bottom:16px;
+  background:linear-gradient(135deg,var(--red),var(--red-d))}
+.feat h4{font-size:17px; margin-bottom:6px}
+.feat p{font-size:14px; color:var(--muted); line-height:1.6}
+
+/* ---------- БАННЕР ---------- */
+body.home .banner{position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end;
+  min-height:460px; padding:48px; margin-bottom:60px; border-radius:28px; border:1px solid var(--line); background:#1a0505}
+body.home .banner::after{content:""; position:absolute; inset:0; z-index:1;
+  background:linear-gradient(90deg,rgba(10,0,0,.93) 0%,rgba(10,0,0,.5) 55%,transparent 100%)}
+body.home .banner .banner-img-box{position:absolute; inset:0}
+body.home .banner .banner-img-box img{width:100%; height:100%; margin:0; border-radius:0; object-fit:cover}
+body.home .banner h3,body.home .banner p{position:relative; z-index:2; max-width:560px; width:auto}
+body.home .banner h3{font-size:clamp(24px,3vw,34px); line-height:1.25; margin-bottom:14px}
+body.home .banner .subtitle{font-weight:600; margin-bottom:8px}
+body.home .banner .desc{color:var(--muted); margin-bottom:0}
+
+/* ---------- ФУТЕР ---------- */
+.h-foot{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; padding:30px 0 40px; border-top:1px solid var(--line); color:var(--muted); font-size:14px}
+.h-foot a{color:var(--muted)} .h-foot a:hover{color:#fff}
+
+/* ---------- МОДАЛКА КОНТАКТОВ (в main.css стилей нет, оформляем) ---------- */
+body.home .modal{display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.75); backdrop-filter:blur(4px); overflow:auto}
+body.home .modal-content{position:relative; width:min(480px,92vw); margin:12vh auto; padding:30px; border-radius:20px;
+  background:#190909; border:1px solid var(--red-d); box-shadow:0 20px 60px rgba(0,0,0,.7)}
+body.home .modal-content h2{margin-bottom:16px}
+body.home .modal-content p{margin:8px 0; color:#ddd}
+body.home .modal-content a{color:#ff8a80; text-decoration:underline}
+body.home .close-btn{position:absolute; top:12px; right:18px; font-size:30px; cursor:pointer; color:#aaa}
+body.home .close-btn:hover{color:#fff}
+
+/* ---------- АДАПТИВ ---------- */
+@media(max-width:1000px){
+  .h-hero{grid-template-columns:1fr; padding-top:50px}
+  .h-stack{order:-1; height:380px}
+  .feats{grid-template-columns:repeat(2,1fr)}
+  body.home header{border-radius:28px; flex-wrap:wrap; justify-content:center}
+  body.home header nav{width:100%; order:3}
+  body.home header nav ul{justify-content:center; flex-wrap:wrap}
+}
+@media(max-width:560px){
+  .feats{grid-template-columns:1fr}
+  .h-stack .poster{width:150px}
+  .h-stack{height:300px}
+  body.home .banner{padding:26px; min-height:380px}
+  body.home .search-container{width:100%}
+  body.home .search-results{width:100%}
+}
+
+    </style>
+</head>
+<body class="home">
+    <div class="wrapper">
+        <header class="container">
+            <span class="logo">KINOPROBA</span>
+            <nav>
+                <ul>
+                    <li class="active"><a href="index.html">Home</a></li>
+                    <li><a href="library.html">Библиотека</a></li>
+                    <li><a href="community.html">Подборки</a></li>
+                    <li><a href="profile.html" id="me">Войти</a></li>
+                    <li class="btn-nav btn"><a href="#" id="contact-btn-nav">Contacts</a></li>
+                </ul>
+            </nav>
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="Найти фильм..." autocomplete="off">
+                </div>
+                <div class="search-results" id="search-results"></div>
+            </div>
+        </header>
+
+        <section class="h-hero container">
+            <div class="h-info">
+                <span class="h-tag">Ваш личный кинокаталог</span>
+                <h1>Welcome to <em>Kinoproba</em></h1>
+                <p>Кино на любой вкус: от культовых драм до захватывающих блокбастеров. Смотрите новинки и классику в отличном качестве — с подборками, рецензиями и рекомендациями специально для вас!</p>
+                <div class="h-cta">
+                    <a href="#trending" class="h-btn primary">Explore Now →</a>
+                    <a href="library.html" class="h-btn ghost">Моя библиотека</a>
+                </div>
+            </div>
+            <div class="h-stack" id="hero-stack"></div>
+        </section>
+
+        <section class="container trending" id="trending">
+            <h3 class="section-title">Сейчас популярные</h3>
+            <div class="movies" id="movies-grid"></div>
+        </section>
+
+        <section class="container big-text">
+            <h2>Лучшие фильмы и сериалы в одном месте</h2>
+            <p>Откройте для себя мир кино с Kinoproba — вашим надежным источником лучших фильмов и сериалов.</p>
+        </section>
+
+        <section class="container feats">
+            <a class="feat" href="library.html"><div class="ic">🎬</div><h4>Каталог</h4><p>Фильмы, сериалы и документальные — вручную или импортом из TMDB.</p></a>
+            <a class="feat" href="library.html"><div class="ic">★</div><h4>Оценки и рецензии</h4><p>Рейтинг от 1 до 5 звёзд и ваши заметки к каждому фильму.</p></a>
+            <a class="feat" href="community.html"><div class="ic">📚</div><h4>Подборки</h4><p>Коллекции, фильтры по жанру, статусу и рейтингу.</p></a>
+            <a class="feat" href="profile.html"><div class="ic">📊</div><h4>Статистика</h4><p>Часы просмотра, серии по неделям, графики по жанрам.</p></a>
+        </section>
+
+        <section class="container banner">
+            <h3>Оставайтесь в курсе последних новинок кино</h3>
+            <p class="subtitle">Все новинки фильмов и сериалов — первыми на Kinoproba!</p>
+            <p class="desc">Наслаждайтесь лучшими кадрами и сюжетами уже сегодня, в хорошем качестве и без рекламы</p>
+            <div class="banner-img-box">
+                <img src="img/hope.jpeg" alt="Banner" onerror="this.src='https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1200'">
+            </div>
+        </section>
+
+        <footer class="container h-foot">
+            <span>© 2026 Kinoproba · «Хайтек.Юниоры»</span>
+            <span><a href="library.html">Библиотека</a> · <a href="community.html">Подборки</a> · <a href="profile.html">Профиль</a></span>
+        </footer>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+        try { KP.nav(); } catch (e) { console.error('KP.nav упал:', e); } // имя пользователя вместо «Войти»
+        const TMDB_API_KEY = 'd683225cef86fa8a035261070445fc66';
+        const BASE_URL = 'https://api.themoviedb.org/3';
+        const IMG_URL = 'https://image.tmdb.org/t/p/w500';
+
+        const moviesGrid = document.getElementById('movies-grid');
+        const homeHeroStack = document.getElementById('hero-stack');
+        const searchInput = document.getElementById('search-input');
+        const searchResults = document.getElementById('search-results');
+
+        const homeEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const homePoster = m => m.poster_path ? IMG_URL + m.poster_path : 'https://via.placeholder.com/300x450?text=No+Poster';
+
+        // Загрузка популярных фильмов из глобального каталога TMDB/IMDb
+        async function getPopularMovies() {
+            try {
+                const res = await fetch(`${BASE_URL}/movie/popular?api_key=${TMDB_API_KEY}&language=ru-RU&page=1`);
+                const data = await res.json();
+                if (!data.results) throw new Error(data.status_message || 'TMDB не вернул results');
+                displayMovies(data.results.slice(0, 10));
+                homeShowHero(data.results.slice(0, 3));
+            } catch (error) {
+                console.error("Ошибка загрузки популярных фильмов:", error);
+                if (moviesGrid) moviesGrid.innerHTML = '<p style="color:#cbb8b8">Не удалось загрузить фильмы с TMDB: ' + homeEsc(error.message) + '. Проверьте ключ и доступ к api.themoviedb.org (F12 → Console).</p>';
+            }
+        }
+
+        function homeShowHero(movies) {
+            if (!homeHeroStack) return;
+            homeHeroStack.innerHTML = movies.map(m =>
+                `<a class="poster" href="movie.html?id=${m.id}"><img src="${homePoster(m)}" alt="${homeEsc(m.title)}"></a>`).join('');
+        }
+
+        function displayMovies(movies) {
+            if (!moviesGrid) return;
+            moviesGrid.innerHTML = '';
+            movies.forEach(movie => {
+                const movieBlock = document.createElement('div');
+                movieBlock.className = 'block';
+                const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '–';
+                movieBlock.innerHTML = `
+                    <span class="rate"><i>★</i> ${rating}</span>
+                    <a href="movie.html?id=${movie.id}">
+                        <img src="${homePoster(movie)}" alt="${homeEsc(movie.title)}" loading="lazy">
+                        <span>${homeEsc(movie.title)}</span>
+                    </a>
+                `;
+                moviesGrid.appendChild(movieBlock);
+            });
+        }
+
+        getPopularMovies();
+
+        // Поиск по каталогу
+        if (searchInput) {
+            searchInput.addEventListener('input', async function() {
+                const query = this.value.trim();
+                searchResults.innerHTML = '';
+
+                if (query.length < 2) {
+                    searchResults.style.display = 'none';
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`${BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&language=ru-RU&query=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+
+                    if (data.results && data.results.length > 0) {
+                        data.results.slice(0, 6).forEach(movie => {
+                            const item = document.createElement('a');
+                            item.href = `movie.html?id=${movie.id}`;
+                            item.className = 'search-item';
+
+                            const posterPath = movie.poster_path ? IMG_URL + movie.poster_path : 'https://via.placeholder.com/50x70?text=No';
+                            const year = movie.release_date ? movie.release_date.substring(0, 4) : '----';
+
+                            item.innerHTML = `
+                                <img src="${posterPath}" alt="">
+                                <div>
+                                    <h4>${homeEsc(movie.title)}</h4>
+                                    <p>${year}</p>
+                                </div>
+                            `;
+                            searchResults.appendChild(item);
+                        });
+                        searchResults.style.display = 'block';
+                    } else {
+                        searchResults.innerHTML = '<div class="no-results">Ничего не найдено</div>';
+                        searchResults.style.display = 'block';
+                    }
+                } catch (error) {
+                    console.error("Ошибка поиска:", error);
+                }
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.search-container')) {
+                    searchResults.style.display = 'none';
+                }
+            });
+        }
+
+        // Модальное окно контактов
+        const modal = document.getElementById("contacts-modal");
+        const contactBtnNav = document.getElementById("contact-btn-nav");
+        const closeBtn = document.getElementById("close-modal");
+
+        if (contactBtnNav) {
+            contactBtnNav.addEventListener("click", function(e) {
+                e.preventDefault();
+                modal.style.display = "block";
+            });
+        }
+
+        if (closeBtn) closeBtn.addEventListener("click", () => modal.style.display = "none");
+        window.addEventListener("click", (e) => {
+            if (e.target === modal) modal.style.display = "none";
+        });
+    </script>
+</body>
+</html>
