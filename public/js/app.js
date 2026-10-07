@@ -36,7 +36,7 @@ const KP = {
     if (g && !localStorage.getItem(this.lk())) localStorage.setItem(this.lk(), g);
   },
   logout() { if (this.tok) this.api('/logout', { method: 'POST' }).catch(() => {}); localStorage.removeItem('kp_user'); localStorage.removeItem('kp_tok'); this.user = null; this.tok = ''; },
-  nav() { const a = document.getElementById('me'); if (a) a.textContent = this.user ? '👤 ' + this.user.username : 'Login'; },
+  nav() { const a = document.getElementById('me'); if (a) a.textContent = this.user ? '👤 ' + this.user.username : 'Вход'; },
   async tmdb(path, q = '', lang = 'ru-RU') {
     const r = await fetch(`${this.tmdbUrl}${path}?api_key=${this.key}&language=${lang}${q}`);
     if (!r.ok) throw new Error('TMDB ' + r.status);
