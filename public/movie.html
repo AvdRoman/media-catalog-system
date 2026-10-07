@@ -27,6 +27,7 @@
     <p id="desc"></p>
 
     <div class="ctl" id="ctl"></div>
+    <div id="rvMine"></div>
 
     <div class="tabs">
       <button class="b on" data-tab="trailer">Трейлер</button>
@@ -36,6 +37,7 @@
     </div>
     <div class="player" id="player"></div>
     <div class="own" id="own"></div>
+    <div class="rv-others" id="rvOthers"></div>
   </div>
 </main></div>
 
@@ -55,7 +57,7 @@ async function init() {
     catch (err) { if (!item) { $('#title').textContent = 'Не удалось загрузить фильм (' + err.message + ').'; $('#desc').innerHTML = 'Причину покажет <a href="check.html" style="color:#ffb3b3">страница диагностики</a>.'; } else fill(item); }
   }
   if (!item && info) item = KP.load().find(i => i.tmdb === +tm) || KP.find(KP.load(), info.title, info.year) || null;
-  controls(); kpP = loadKp(); tab(item && item.source === 'stream' && item.url ? 'link' : 'trailer');
+  controls(); mine(); kpP = loadKp(); kpP.then(others); tab(item && item.source === 'stream' && item.url ? 'link' : 'trailer');
 }
 // Кинопоиск дополняет TMDB: рейтинги, ссылка, «где смотреть»; если он недоступен, страница работает как раньше
 async function loadKp() {
@@ -76,18 +78,38 @@ function fill(m) {
   if (m.imdb) document.querySelector('.movie-meta').insertAdjacentHTML('beforeend', lk(`https://www.imdb.com/title/${m.imdb}/`, 'IMDb'));
   if (m.kpUrl) document.querySelector('.movie-meta').insertAdjacentHTML('beforeend', lk(m.kpUrl, 'Кинопоиск'));
   $('#rates').innerHTML = [m.ratingKp ? `<span class="rt"><b>${e(m.ratingKp)}</b> Кинопоиск</span>` : '', m.ratingImdb ? `<span class="rt"><b>${e(m.ratingImdb)}</b> IMDb</span>` : ''].join('');
-  $('#desc').textContent = m.overview || (item && item.review) || 'Описание отсутствует.';
+  $('#desc').textContent = m.overview || 'Описание отсутствует.';
   if (m.poster) $('#img').src = m.poster;
 }
 // статус и оценка прямо на странице фильма
 function controls() {
   const c = $('#ctl');
-  if (!item) { c.innerHTML = '<button class="b" id="add">+ В библиотеку</button>'; $('#add').onclick = () => { item = KP.add(info).item || KP.find(KP.load(), info.title, info.year); controls(); }; return; }
+  if (!item) { c.innerHTML = '<button class="b" id="add">+ В библиотеку</button>'; $('#add').onclick = () => { item = KP.add(info).item || KP.find(KP.load(), info.title, info.year); controls(); mine(); }; return; }
   c.innerHTML = `<select id="st">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === item.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <span class="stars">${[1, 2, 3, 4, 5].map(n => `<span data-n="${n}" class="${n <= item.rating ? 'on' : ''}">★</span>`).join('')}</span>
     <a class="b g" href="library.html">В библиотеку</a>`;
   $('#st').onchange = ev => { KP.update(item.id, { status: ev.target.value }); item.status = ev.target.value; };
   c.querySelector('.stars').onclick = ev => { const n = +ev.target.dataset.n; if (!n) return; item.rating = item.rating === n ? 0 : n; KP.update(item.id, { rating: item.rating }); controls(); };
+}
+// моя рецензия: пишется и правится прямо здесь, без открытия редактора всей карточки
+function mine() {
+  const box = $('#rvMine'), chg = () => { item = KP.load().find(x => x.id === item.id) || item; others(); };
+  if (item) return KP.rvMine(box, item.id, { change: chg });
+  box.innerHTML = '<div class="rv-empty"><span>Рецензию можно написать после добавления фильма в библиотеку.</span><button type="button" class="b" id="rvAdd">✎ Написать рецензию</button></div>';
+  $('#rvAdd').onclick = () => {
+    if (!info) return;
+    item = KP.add(info).item || KP.find(KP.load(), info.title, info.year); if (!item) return;
+    controls(); KP.rvMine(box, item.id, { edit: true, change: chg });
+  };
+}
+// рецензии других пользователей: видны только те, что автор сам открыл («Показывать другим»)
+async function others() {
+  const box = $('#rvOthers'), s = info || item; if (!s) return;
+  try {
+    const r = await KP.api('/reviews?' + new URLSearchParams({ tmdb: s.tmdb || '', type: s.type || '', imdb: s.imdb || '', kp: s.kpId || '', title: s.title || '', year: s.year || '' }));
+    const list = r.filter(x => !KP.user || x.user !== KP.user.username);
+    box.innerHTML = `<h2>Рецензии пользователей${list.length ? ' (' + list.length + ')' : ''}</h2>` + (list.map(x => KP.rvView(x, x.user)).join('') || '<p class="rv-none">Других рецензий на этот фильм пока нет.</p>');
+  } catch (err) { box.innerHTML = ''; }
 }
 // вкладки плеера
 document.querySelector('.tabs').onclick = ev => { const t = ev.target.dataset.tab; if (t) tab(t); };

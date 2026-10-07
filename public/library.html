@@ -33,6 +33,7 @@
     <select id="fs"><option value="">Все статусы</option><option value="plan">В планах</option><option value="progress">В процессе</option><option value="done">Просмотрено</option></select>
     <select id="ft"><option value="">Все типы</option><option value="movie">Фильмы</option><option value="tv">Сериалы</option><option value="doc">Документальные</option></select>
     <select id="fr"><option value="0">Любая оценка</option><option value="3">от 3★</option><option value="4">от 4★</option><option value="5">5★</option></select>
+    <select id="fv"><option value="">Любые рецензии</option><option value="1">Только с рецензией</option></select>
     <select id="fc"></select>
     <select id="so"><option value="added">Сначала новые</option><option value="title">По названию</option><option value="rating">По оценке</option><option value="year">По году</option></select>
   </div>
@@ -57,6 +58,11 @@
   <div id="epb" style="max-height:55vh;overflow:auto"></div>
   <div class="tools"><input id="newc" type="number" min="1" placeholder="Серий в новом сезоне" style="width:190px"><button class="b g" id="adds">+ Сезон</button></div>
   <div style="display:flex;gap:8px"><button class="b" id="nextEp">Отметить следующую серию</button><button class="b g" onclick="dEp.close()">Закрыть</button></div>
+</dialog>
+
+<dialog id="dRev">
+  <h3 id="rvh">Рецензия</h3>
+  <div id="rvbox"></div>
 </dialog>
 
 <dialog id="dEdit"><form id="fEdit" method="dialog">
@@ -102,12 +108,11 @@
   </div>
 
   <details>
-    <summary>Источник, прогресс и рецензия</summary>
+    <summary>Источник и прогресс</summary>
     <label>Источник<select name="source"><option value="stream">Стриминг</option><option value="local">Локальный файл</option><option value="disc">Диск / носитель</option></select></label>
     <label>Ссылка или путь<input name="url"></label>
     <label>Инв. номер / носитель<input name="inv"></label>
     <label>Прогресс (например, S1E5)<input name="progress"></label>
-    <label>Рецензия<textarea name="review" rows="3"></textarea></label>
   </details>
 
   <p class="ferr" id="ferr" role="alert"></p>
@@ -121,13 +126,13 @@ let editId = null;
 const csv = v => v.split(',').map(s => s.trim()).filter(Boolean);
 
 function render() {
-  const L = KP.load(), q = $('#q').value.toLowerCase(), f = { s: $('#fs').value, t: $('#ft').value, r: +$('#fr').value, c: $('#fc').value };
+  const L = KP.load(), q = $('#q').value.toLowerCase(), f = { s: $('#fs').value, t: $('#ft').value, r: +$('#fr').value, c: $('#fc').value, v: $('#fv').value };
   // подборки
   const cols = [...new Set(L.map(i => i.collection).filter(Boolean))];
   $('#fc').innerHTML = '<option value="">Все подборки</option>' + cols.map(c => `<option ${c === f.c ? 'selected' : ''}>${e(c)}</option>`).join('');
   $('#cols').innerHTML = cols.map(c => `<option value="${e(c)}">`).join('');
-  let a = L.filter(i => (!f.s || i.status === f.s) && (!f.t || i.type === f.t) && i.rating >= f.r && (!f.c || i.collection === f.c) &&
-    [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.collection].join(' ').toLowerCase().includes(q));
+  let a = L.filter(i => (!f.s || i.status === f.s) && (!f.t || i.type === f.t) && i.rating >= f.r && (!f.c || i.collection === f.c) && (!f.v || KP.hasRv(i)) &&
+    [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.collection, i.review].join(' ').toLowerCase().includes(q));
   const so = $('#so').value;
   a.sort((x, y) => so === 'title' ? x.title.localeCompare(y.title) : so === 'rating' ? y.rating - x.rating : so === 'year' ? y.year - x.year : y.added - x.added);
   $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB или вручную.</p>';
@@ -141,9 +146,10 @@ function card(i) {
       <div>${i.genres.map(g => `<span class="pill">${e(g)}</span>`).join('')}${i.tags.map(g => `<span class="pill">#${e(g)}</span>`).join('')}</div>
       ${i.ratingKp || i.ratingImdb ? `<small>${[i.ratingKp ? `<a href="${e(i.kpUrl || '#')}" target="_blank" rel="noopener" style="color:#ffb3b3">КП ${e(i.ratingKp)}</a>` : '', i.ratingImdb ? 'IMDb ' + e(i.ratingImdb) : ''].filter(Boolean).join(' · ')}</small>` : ''}
       ${i.progress ? `<small>Прогресс: ${e(i.progress)}</small>` : ''}
+      ${KP.hasRv(i) ? `<div class="rv-snip" data-a="rv" title="Открыть рецензию">${(KP.tone(i.revTone) || ['📝'])[0]} ${i.revSpoiler ? '<i>Рецензия со спойлерами</i>' : e(i.review.slice(0, 160))}</div>` : ''}
       <select data-a="st" class="edit">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === i.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
       <div class="stars edit">${[1, 2, 3, 4, 5].map(n => `<span data-a="r" data-n="${n}" class="${n <= i.rating ? 'on' : ''}">★</span>`).join('')}</div>
-      <div class="acts"><a class="b" href="${link}">▶ Смотреть</a>${i.type === 'tv' ? '<button class="b g edit" data-a="ep">Серии</button>' : ''}<button class="b g edit" data-a="e">✎</button><button class="b g edit" data-a="d">✕</button></div>
+      <div class="acts"><a class="b" href="${link}">▶ Смотреть</a>${i.type === 'tv' ? '<button class="b g edit" data-a="ep">Серии</button>' : ''}<button class="b g edit" data-a="rv" title="Рецензия">📝</button><button class="b g edit" data-a="e" title="Редактировать карточку">✎</button><button class="b g edit" data-a="d">✕</button></div>
     </div></div>`;
 }
 $('#grid').addEventListener('click', ev => {
@@ -152,10 +158,19 @@ $('#grid').addEventListener('click', ev => {
   if (a === 'r') { const it = KP.load().find(x => x.id === id); KP.update(id, { rating: it.rating === +t.dataset.n ? 0 : +t.dataset.n }); render(); }
   if (a === 'd' && confirm('Удалить из библиотеки?')) { KP.remove(id); render(); }
   if (a === 'e') openEdit(id);
+  if (a === 'rv') openRv(id);
   if (a === 'ep') openEp(id);
 });
 $('#grid').addEventListener('change', ev => { if (ev.target.dataset.a === 'st') { KP.update(ev.target.closest('.card').dataset.id, { status: ev.target.value }); render(); } });
-['#q', '#fs', '#ft', '#fr', '#fc', '#so'].forEach(s => $(s).addEventListener('input', render));
+['#q', '#fs', '#ft', '#fr', '#fc', '#fv', '#so'].forEach(s => $(s).addEventListener('input', render));
+
+// рецензия прямо из библиотеки: без открытия редактора всей карточки
+function openRv(id) {
+  const it = KP.load().find(x => x.id === id); if (!it) return;
+  $('#rvh').textContent = 'Рецензия — ' + it.title;
+  KP.rvMine($('#rvbox'), id, { edit: !KP.hasRv(it), change: render, cancel: () => dRev.close(), close: () => dRev.close() });
+  dRev.showModal();
+}
 
 // напоминания: начатое без движения 14+ дней, планы старше 30 дней
 function remind(L) {
@@ -319,7 +334,7 @@ function openEdit(id, pre = {}) {
   editId = id; const it = id ? KP.load().find(x => x.id === id) : pre;
   $('#eh').textContent = id ? 'Редактирование карточки' : 'Новая карточка'; $('#fsave').textContent = id ? 'Сохранить' : 'Создать карточку';
   F.reset();
-  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'collection', 'review', 'overview', 'imdb']) if (it[k] !== undefined && it[k] !== null) E[k].value = it[k];
+  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'collection', 'overview', 'imdb']) if (it[k] !== undefined && it[k] !== null) E[k].value = it[k];
   E.genres.value = (it.genres || []).join(', '); E.tags.value = (it.tags || []).join(', ');
   pv = it.poster || ''; E.poster.value = /^https?:/i.test(pv) ? pv : ''; hint(/^data:/i.test(pv) ? 'Постер загружен с устройства' : ''); ferr('');
   showPoster(); syncChips(); tvVis(); dEdit.showModal();
@@ -340,13 +355,13 @@ F.onsubmit = ev => {
   const dup = L.find(x => x.id !== editId && x.title.toLowerCase() === title.toLowerCase() && String(x.year) === year);
   if (dup) return bad(`«${dup.title}»${year ? ' (' + year + ')' : ''} уже есть в библиотеке. Измените название или год.`);
   const d = { title, year, director: E.director.value.trim(), type: E.type.value, source: E.source.value, url: E.url.value.trim(), inv: E.inv.value.trim(),
-    runtime: +E.runtime.value || 0, progress: E.progress.value.trim(), collection: E.collection.value.trim(), review: E.review.value.trim(),
+    runtime: +E.runtime.value || 0, progress: E.progress.value.trim(), collection: E.collection.value.trim(),
     genres: canon(genreList(), L), tags: csv(E.tags.value), overview: E.overview.value.trim(), imdb, poster };
   if (seasons) d.seasons = seasons;
   if (editId) { if (!KP.update(editId, d)) return ev.preventDefault(); render(); return; }
   const r = KP.add({ w: [], ...d });
   if (!r.item) return ev.preventDefault(); // места в браузере нет — предупреждение уже показано, форма остаётся открытой
-  ['#q', '#fs', '#ft', '#fc'].forEach(s => $(s).value = ''); $('#fr').value = '0'; // чтобы новая карточка не спряталась за фильтрами
+  ['#q', '#fs', '#ft', '#fc', '#fv'].forEach(s => $(s).value = ''); $('#fr').value = '0'; // чтобы новая карточка не спряталась за фильтрами
   render(); flash(r.item.id);
 };
 function flash(id) {
