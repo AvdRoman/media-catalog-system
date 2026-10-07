@@ -6,7 +6,14 @@ const KP = {
   user: JSON.parse(localStorage.getItem('kp_user') || 'null'), tok: localStorage.getItem('kp_tok') || '',
   lk() { return 'kp_lib_' + (this.user ? this.user.id : 'guest'); },
   load() { try { return JSON.parse(localStorage.getItem(this.lk())) || []; } catch (e) { return []; } },
-  save(l) { localStorage.setItem(this.lk(), JSON.stringify(l)); this.push(l); },
+  save(l) {
+    try { localStorage.setItem(this.lk(), JSON.stringify(l)); }
+    catch (e) { // хранилище браузера (~5 МБ) переполнено; предупреждаем не чаще раза в 5 секунд
+      if (Date.now() - (this._qa || 0) > 5000) alert('Не хватает места в браузере, изменения не сохранены. Удалите карточки с загруженными постерами или вставьте ссылку на постер вместо файла.');
+      this._qa = Date.now(); return false;
+    }
+    this.push(l); return true;
+  },
   async api(p, o = {}) {
     const r = await fetch('/api' + p, { method: o.method || 'GET', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.tok }, body: o.body ? JSON.stringify(o.body) : undefined });
     const d = await r.json().catch(() => null);
@@ -29,7 +36,7 @@ const KP = {
     if (g && !localStorage.getItem(this.lk())) localStorage.setItem(this.lk(), g);
   },
   logout() { if (this.tok) this.api('/logout', { method: 'POST' }).catch(() => {}); localStorage.removeItem('kp_user'); localStorage.removeItem('kp_tok'); this.user = null; this.tok = ''; },
-  nav() { const a = document.getElementById('me'); if (a) a.textContent = this.user ? '👤 ' + this.user.username : 'Войти'; },
+  nav() { const a = document.getElementById('me'); if (a) a.textContent = this.user ? '👤 ' + this.user.username : 'Login'; },
   async tmdb(path, q = '', lang = 'ru-RU') {
     const r = await fetch(`${this.tmdbUrl}${path}?api_key=${this.key}&language=${lang}${q}`);
     if (!r.ok) throw new Error('TMDB ' + r.status);
@@ -48,6 +55,32 @@ const KP = {
       runtime: m.runtime || ((m.episode_run_time || [45])[0] * (m.number_of_episodes || 1))
     };
   },
+  // --- ручные карточки ---
+  // постер: только http(s)-ссылка или картинка data:image; символы, ломающие CSS url('…'), кодируются
+  safePoster(u) {
+    u = String(u || '').trim();
+    if (!/^(https?:\/\/|data:image\/(jpeg|png|webp|gif);base64,)/i.test(u)) return '';
+    return u.replace(/['"()\\\s<>]/g, c => c.charCodeAt(0) < 128 ? '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0') : encodeURIComponent(c));
+  },
+  // IMDb ID (tt1234567) из ID или из ссылки на страницу фильма
+  imdbId(s) { return (String(s || '').match(/tt\d{7,10}/) || [''])[0]; },
+  // файл с устройства -> уменьшенный JPEG (data URL), чтобы карточка не раздувала библиотеку: ~20–40 КБ вместо мегабайтов
+  imgToData(file, maxW = 320, maxH = 480, q = 0.8) {
+    return new Promise((ok, bad) => {
+      if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) return bad(new Error('Подходит JPG, PNG, WebP или GIF'));
+      if (file.size > 15e6) return bad(new Error('Файл больше 15 МБ. Выберите изображение поменьше'));
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const k = Math.min(1, maxW / img.width, maxH / img.height), c = document.createElement('canvas'), x = c.getContext('2d');
+        c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        x.fillStyle = '#190909'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height);
+        ok(c.toDataURL('image/jpeg', q));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); bad(new Error('Не удалось прочитать изображение')); };
+      img.src = url;
+    });
+  },
   find(l, t, y) { return l.find(i => i.title.toLowerCase() === t.toLowerCase() && String(i.year) === String(y)); },
   // добавление с проверкой дубля «название + год»
   add(it) {
@@ -55,13 +88,13 @@ const KP = {
     if (ex) return { dup: ex };
     it = { status: 'plan', rating: 0, tags: [], genres: [], collection: '', source: 'stream', url: '', inv: '', review: '', progress: '', runtime: 0, ...it,
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), added: Date.now(), upd: Date.now() };
-    l.push(it); this.save(l); return { item: it };
+    l.push(it); if (!this.save(l)) return { fail: true }; return { item: it };
   },
   update(id, p) {
     const l = this.load(), i = l.find(x => x.id === id); if (!i) return;
     Object.assign(i, p, { upd: Date.now() });
     if (p.status === 'done' && !i.watched) i.watched = Date.now();
-    this.save(l);
+    return this.save(l);
   },
   remove(id) { this.save(this.load().filter(i => i.id !== id)); },
   // свободные фильмы: открытые проекты Blender Foundation (CC BY) и «Носферату» (1922, общественное достояние)

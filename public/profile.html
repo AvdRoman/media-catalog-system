@@ -9,8 +9,8 @@
 <header class="container">
   <a href="index.html" class="logo">KINOPROBA</a>
   <nav><ul>
-    <li><a href="index.html">Home</a></li><li><a href="library.html">Библиотека</a></li>
-    <li><a href="community.html">Подборки</a></li><li class="active"><a href="profile.html" id="me">Войти</a></li>
+    <li><a href="index.html">Home</a></li><li><a href="library.html">Library</a></li>
+    <li><a href="community.html">Collections</a></li><li class="active"><a href="profile.html" id="me">Login</a></li><li><a href="contacts.html">Contacts</a></li>
   </ul></nav>
 </header>
 <main class="container" id="app" style="max-width:760px;padding-bottom:60px"></main></div>
@@ -25,16 +25,15 @@ function authView() {
     <div class="tabs"><button class="b on" id="t1">Вход</button><button class="b g" id="t2">Регистрация</button></div>
     <form id="af" class="tools" style="flex-direction:column;align-items:stretch">
       <input id="lg" placeholder="Логин" required autocomplete="username">
-      <input id="em" placeholder="Email" type="email" style="display:none" autocomplete="email">
       <input id="pw" placeholder="Пароль (от 6 символов)" type="password" required autocomplete="current-password">
       <button class="b" id="go">Войти</button><div id="msg" style="color:#ffb3b3"></div></form>`);
   let reg = false;
-  const sw = r => { reg = r; $('#t1').className = 'b ' + (r ? 'g' : 'on'); $('#t2').className = 'b ' + (r ? 'on' : 'g'); $('#em').style.display = r ? '' : 'none'; $('#em').required = r; $('#go').textContent = r ? 'Создать аккаунт' : 'Войти'; };
+  const sw = r => { reg = r; $('#t1').className = 'b ' + (r ? 'g' : 'on'); $('#t2').className = 'b ' + (r ? 'on' : 'g'); $('#go').textContent = r ? 'Создать аккаунт' : 'Войти'; };
   $('#t1').onclick = () => sw(false); $('#t2').onclick = () => sw(true);
   $('#af').onsubmit = async ev => {
     ev.preventDefault();
     try {
-      const d = await KP.api(reg ? '/register' : '/login', { method: 'POST', body: reg ? { username: $('#lg').value.trim(), email: $('#em').value.trim(), password: $('#pw').value } : { login: $('#lg').value.trim(), password: $('#pw').value } });
+      const d = await KP.api(reg ? '/register' : '/login', { method: 'POST', body: reg ? { username: $('#lg').value.trim(), password: $('#pw').value } : { login: $('#lg').value.trim(), password: $('#pw').value } });
       KP.login(d); await KP.pull(); KP.nav(); me();
     } catch (er) { $('#msg').textContent = er.message; }
   };
@@ -44,7 +43,7 @@ async function me() {
   let u; try { u = await KP.api('/me'); } catch (er) { KP.logout(); return authView(); }
   const L = KP.load(), done = L.filter(i => i.status === 'done').length;
   $('#app').innerHTML = `<h1>👤 ${e(u.username)}</h1>` + box(`
-    <p>${e(u.email)} · с ${new Date(u.created).toLocaleDateString('ru')}</p>
+    <p>На сайте с ${new Date(u.created).toLocaleDateString('ru')}</p>
     <p>В библиотеке: <b>${L.length}</b> · просмотрено: <b>${done}</b></p>
     <label style="display:block;margin-top:12px">О себе<textarea id="bio" rows="2" style="width:100%;margin-top:4px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:9px;font:inherit">${e(u.bio)}</textarea></label>
     <div class="tools"><button class="b" id="sb">Сохранить</button><button class="b g" id="lo">Выйти</button></div>`) +

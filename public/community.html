@@ -9,8 +9,8 @@
 <header class="container">
   <a href="index.html" class="logo">KINOPROBA</a>
   <nav><ul>
-    <li><a href="index.html">Home</a></li><li><a href="library.html">Библиотека</a></li>
-    <li class="active"><a href="community.html">Подборки</a></li><li><a href="profile.html" id="me">Войти</a></li>
+    <li><a href="index.html">Home</a></li><li><a href="library.html">Library</a></li>
+    <li class="active"><a href="community.html">Collections</a></li><li><a href="profile.html" id="me">Login</a></li><li><a href="contacts.html">Contacts</a></li>
   </ul></nav>
 </header>
 <main class="container">
@@ -40,7 +40,7 @@ async function open(uid, name) {
     cur = await KP.api(`/collections/${uid}/${encodeURIComponent(name)}`);
     $('#view').innerHTML = `<h2>${e(cur.name)} <small style="color:#bbb">— ${e(cur.owner)}</small></h2><p>${e(cur.descr)}</p>
       <button class="b" id="cp">+ Добавить всю подборку в мою библиотеку</button>
-      <div class="grid">${cur.items.map(i => `<div class="card"><div class="p" style="${i.poster ? `background-image:url('${e(i.poster)}')` : ''}">${i.poster ? '' : '▶'}</div>
+      <div class="grid">${cur.items.map(i => `<div class="card"><div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>
         <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type] || ''}</small>
         ${i.tmdb ? `<a class="b g" href="movie.html?id=${i.tmdb}&t=${i.type === 'tv' ? 'tv' : 'movie'}">Открыть</a>` : ''}</div></div>`).join('')}</div>`;
     $('#cp').onclick = copy; $('#view').scrollIntoView({ behavior: 'smooth' });

@@ -12,6 +12,7 @@ body.home .container{width:min(1280px,92%)}
 
 /* ---------- ШАПКА ---------- */
 body.home header{
+  display:flex; justify-content:space-between; align-items:center; min-height:0; /* main.css теперь делает header grid с min-height:142px — здесь нужен прежний flex-пилюля */
   position:sticky; top:14px; z-index:100; margin:14px auto 0; padding:12px 26px; gap:24px;
   background:rgba(15,0,0,.6); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   border:1px solid var(--line); border-radius:999px;

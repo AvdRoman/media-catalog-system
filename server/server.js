@@ -6,10 +6,22 @@ const DB_FILE = process.env.DB_PATH || path.join(__dirname, 'kinoproba.db');
 const db = new DatabaseSync(DB_FILE);
 db.exec(`
 PRAGMA journal_mode = WAL;
-CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE, email TEXT UNIQUE COLLATE NOCASE, hash TEXT, bio TEXT DEFAULT '', created INTEGER);
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE, hash TEXT, bio TEXT DEFAULT '', created INTEGER);
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER, created INTEGER);
 CREATE TABLE IF NOT EXISTS items(user_id INTEGER, id TEXT, data TEXT, PRIMARY KEY(user_id, id));
 CREATE TABLE IF NOT EXISTS collections(user_id INTEGER, name TEXT, descr TEXT DEFAULT '', public INTEGER DEFAULT 0, PRIMARY KEY(user_id, name));`);
+
+// миграция старых баз: убираем столбец email (раньше он требовался при регистрации); аккаунты, пароли и библиотеки сохраняются
+if (db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'email'").get()) {
+  try {
+    db.exec(`BEGIN;
+      CREATE TABLE users_new(id INTEGER PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE, hash TEXT, bio TEXT DEFAULT '', created INTEGER);
+      INSERT INTO users_new SELECT id, username, hash, bio, created FROM users;
+      DROP TABLE users; ALTER TABLE users_new RENAME TO users;
+      COMMIT;`);
+    console.log('База обновлена: столбец email удалён');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
 
 // --- пароли: scrypt + соль (в базе нет паролей в открытом виде) ---
 const hashPw = pw => { const s = crypto.randomBytes(16).toString('hex'); return s + ':' + crypto.scryptSync(pw, s, 64).toString('hex'); };
@@ -22,30 +34,29 @@ const session = uid => { const t = crypto.randomBytes(24).toString('hex'); db.pr
 
 // --- мини-роутер ---
 const routes = [];
-const route = (method, pattern, fn, needAuth = false) => routes.push({ method, needAuth, fn, re: new RegExp('^' + pattern.replace(/:\w+/g, '([^/]+)') + '$') });
+const route = (method, pattern, fn, needAuth = false, maxBody = 1e5) => routes.push({ method, needAuth, maxBody, fn, re: new RegExp('^' + pattern.replace(/:\w+/g, '([^/]+)') + '$') });
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
 const err = (res, c, m) => send(res, c, { error: m });
-const readBody = req => new Promise((ok, bad) => {
+const readBody = (req, max) => new Promise((ok, bad) => {
   let n = 0; const ch = [];
-  req.on('data', c => { n += c.length; if (n > 5e6) { bad(new Error('big')); req.destroy(); } else ch.push(c); });
+  req.on('data', c => { n += c.length; if (n > max) { bad(new Error('big')); req.destroy(); } else ch.push(c); });
   req.on('end', () => { try { ok(ch.length ? JSON.parse(Buffer.concat(ch).toString()) : {}); } catch (e) { bad(e); } });
   req.on('error', bad);
 });
 
 // --- регистрация и вход ---
 route('POST', '/api/register', ({ res, body }) => {
-  const { username, email, password } = body || {};
+  const { username, password } = body || {};
   if (!/^[\w.-]{3,20}$/.test(username || '')) return err(res, 400, 'Логин: 3–20 символов (буквы, цифры, _ . -)');
-  if (!/^\S+@\S+\.\S+$/.test(email || '')) return err(res, 400, 'Некорректный email');
   if ((password || '').length < 6) return err(res, 400, 'Пароль не короче 6 символов');
   try {
-    const r = db.prepare('INSERT INTO users(username,email,hash,created) VALUES(?,?,?,?)').run(username, email, hashPw(password), Date.now());
+    const r = db.prepare('INSERT INTO users(username,hash,created) VALUES(?,?,?)').run(username, hashPw(password), Date.now());
     const id = Number(r.lastInsertRowid); send(res, 200, { token: session(id), user: { id, username } });
-  } catch (e) { err(res, 409, 'Логин или email уже заняты'); }
+  } catch (e) { err(res, 409, 'Этот логин уже занят'); }
 });
 route('POST', '/api/login', ({ res, body }) => {
   const { login, password } = body || {};
-  const u = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(login || '', login || '');
+  const u = db.prepare('SELECT * FROM users WHERE username = ?').get(login || '');
   if (!u || !checkPw(password || '', u.hash)) return err(res, 401, 'Неверный логин или пароль');
   send(res, 200, { token: session(u.id), user: { id: u.id, username: u.username } });
 });
@@ -53,7 +64,7 @@ route('POST', '/api/logout', ({ req, res }) => { db.prepare('DELETE FROM session
 
 // --- профиль ---
 route('GET', '/api/me', ({ res, uid }) => {
-  const u = db.prepare('SELECT id, username, email, bio, created FROM users WHERE id = ?').get(uid);
+  const u = db.prepare('SELECT id, username, bio, created FROM users WHERE id = ?').get(uid);
   send(res, 200, { ...u, items: db.prepare('SELECT COUNT(*) n FROM items WHERE user_id = ?').get(uid).n });
 }, true);
 route('PUT', '/api/me', ({ res, uid, body }) => { db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(String((body || {}).bio || '').slice(0, 300), uid); send(res, 200, { ok: true }); }, true);
@@ -70,7 +81,7 @@ route('PUT', '/api/library', ({ res, uid, body }) => {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   send(res, 200, { ok: true });
-}, true);
+}, true, 10e6);
 
 // --- подборки: фильмы пользователя с одним названием в поле «collection»; открыть для всех можно в профиле ---
 const CN = "json_extract(i.data,'$.collection')";
@@ -113,7 +124,7 @@ route('GET', '/api/users/:name', ({ res, p }) => {
 });
 
 // --- статика сайта (папку server с базой наружу не отдаём) ---
-const ROOT = path.join(__dirname, '..'), SRV = path.join(ROOT, 'server');
+const ROOT = path.join(__dirname, '..', 'public'), SRV = path.join(ROOT, 'server');
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ico': 'image/x-icon' };
 function serveStatic(u, res) {
   let f; try { f = decodeURIComponent(u.pathname); } catch (e) { f = '/'; }
@@ -131,17 +142,18 @@ http.createServer(async (req, res) => {
   if (!u.pathname.startsWith('/api/')) return serveStatic(u, res);
   const r = routes.find(r => r.method === req.method && r.re.test(u.pathname));
   if (!r) return err(res, 404, 'Не найдено');
-  let body; try { body = await readBody(req); } catch (e) { return err(res, 400, 'Некорректный запрос'); }
-  const ctx = { req, res, body, q: u.searchParams, p: u.pathname.match(r.re).slice(1).map(decodeURIComponent) };
+  let uid;
   try {
     if (r.needAuth) {
       const t = (req.headers.authorization || '').slice(7);
       const s = t && db.prepare('SELECT user_id FROM sessions WHERE token = ? AND created > ?').get(t, Date.now() - DAY30);
-      if (!s) return err(res, 401, 'Нужно войти в аккаунт');
-      ctx.uid = s.user_id;
+      if (!s) { req.resume(); return err(res, 401, 'Нужно войти в аккаунт'); }
+      uid = s.user_id;
     }
-    r.fn(ctx);
-  } catch (e) { console.error(e); err(res, 500, 'Ошибка сервера'); }
+  } catch (e) { console.error(e); return err(res, 500, 'Ошибка сервера'); }
+  let body; try { body = await readBody(req, r.maxBody); } catch (e) { return err(res, 400, 'Некорректный запрос'); }
+  const ctx = { req, res, body, uid, q: u.searchParams, p: u.pathname.match(r.re).slice(1).map(decodeURIComponent) };
+  try { r.fn(ctx); } catch (e) { console.error(e); err(res, 500, 'Ошибка сервера'); }
 }).listen(process.env.PORT || 3000, () => {
   const port = process.env.PORT || 3000;
   console.log('Kinoproba: http://localhost:' + port);
