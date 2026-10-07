@@ -23,6 +23,7 @@
   <div class="movie-info">
     <h1 id="title">Загрузка…</h1>
     <div class="movie-meta"><span id="year"></span> — <span id="genre"></span></div>
+    <div class="rates" id="rates"></div>
     <p id="desc"></p>
 
     <div class="ctl" id="ctl"></div>
@@ -44,6 +45,7 @@ const $ = s => document.querySelector(s), e = KP.esc, P = new URLSearchParams(lo
 KP.nav();
 let item = KP.load().find(i => i.id === P.get('lib')) || null;
 let tm = P.get('id') || (item && item.tmdb) || null, type = P.get('t') || (item && item.type === 'tv' ? 'tv' : 'movie'), info = null;
+let kpi = null, kpP = Promise.resolve(); // kpi — данные Кинопоиска (рейтинги, «где смотреть»), kpP — их загрузка
 
 async function init() {
   if (P.get('imdb') && !tm) { try { const f = await KP.tmdb('/find/' + P.get('imdb'), '&external_source=imdb_id'); const r = f.movie_results[0] || f.tv_results[0]; if (r) { tm = r.id; type = f.movie_results[0] ? 'movie' : 'tv'; } } catch (err) {} }
@@ -53,14 +55,27 @@ async function init() {
     catch (err) { if (!item) { $('#title').textContent = 'Не удалось загрузить фильм (' + err.message + ').'; $('#desc').innerHTML = 'Причину покажет <a href="check.html" style="color:#ffb3b3">страница диагностики</a>.'; } else fill(item); }
   }
   if (!item && info) item = KP.load().find(i => i.tmdb === +tm) || KP.find(KP.load(), info.title, info.year) || null;
-  controls(); tab(item && item.source === 'stream' && item.url ? 'link' : 'trailer');
+  controls(); kpP = loadKp(); tab(item && item.source === 'stream' && item.url ? 'link' : 'trailer');
+}
+// Кинопоиск дополняет TMDB: рейтинги, ссылка, «где смотреть»; если он недоступен, страница работает как раньше
+async function loadKp() {
+  const src = info || item; if (!src) return;
+  try { kpi = src.kpId ? await KP.kp('/movie/' + src.kpId) : await KP.kpMatch(src); } catch (err) { kpi = null; }
+  if (!kpi) return;
+  info = KP.mergeKp(src, kpi); fill(info);
+  if (item && (item.kpId !== kpi.kp || item.ratingKp !== kpi.ratingKp || item.ratingImdb !== kpi.ratingImdb)) { // запоминаем в библиотеке
+    const d = { kpId: kpi.kp, kpUrl: kpi.url, ratingKp: kpi.ratingKp, ratingImdb: kpi.ratingImdb }; Object.assign(item, d); const l = KP.load(), x = l.find(i => i.id === item.id); if (x) { Object.assign(x, d); KP.save(l); } // без смены «upd», чтобы не сбрасывать напоминания
+  }
 }
 function fill(m) {
   document.title = m.title + ' - Kinoproba';
   $('#title').textContent = m.title; $('#year').textContent = m.year || '----';
   $('#genre').textContent = (m.genres || []).join(', ') || KP.TY[m.type] || '';
-  const old = document.querySelector('.movie-meta a'); if (old) old.remove();
-  if (m.imdb) document.querySelector('.movie-meta').insertAdjacentHTML('beforeend', ` — <a href="https://www.imdb.com/title/${m.imdb}/" target="_blank" rel="noopener" style="color:#fff">IMDb</a>`);
+  document.querySelectorAll('.movie-meta .lk').forEach(a => a.remove()); // ссылка вместе с разделителем; fill() вызывается повторно, когда приходят данные Кинопоиска
+  const lk = (u, n) => `<span class="lk"> — <a href="${e(u)}" target="_blank" rel="noopener" style="color:#fff">${n}</a></span>`;
+  if (m.imdb) document.querySelector('.movie-meta').insertAdjacentHTML('beforeend', lk(`https://www.imdb.com/title/${m.imdb}/`, 'IMDb'));
+  if (m.kpUrl) document.querySelector('.movie-meta').insertAdjacentHTML('beforeend', lk(m.kpUrl, 'Кинопоиск'));
+  $('#rates').innerHTML = [m.ratingKp ? `<span class="rt"><b>${e(m.ratingKp)}</b> Кинопоиск</span>` : '', m.ratingImdb ? `<span class="rt"><b>${e(m.ratingImdb)}</b> IMDb</span>` : ''].join('');
   $('#desc').textContent = m.overview || (item && item.review) || 'Описание отсутствует.';
   if (m.poster) $('#img').src = m.poster;
 }
@@ -99,21 +114,28 @@ function tab(t) {
 }
 const REG = { RU: 'Россия', US: 'США', SE: 'Швеция', DE: 'Германия', GB: 'Великобритания', KZ: 'Казахстан', BY: 'Беларусь' };
 async function full(pl) {
-  if (!tm) { pl.innerHTML = '<div class="empty">Для этой записи нет данных TMDB. Откройте «Файл» или «Своя ссылка».</div>'; return; }
   const reg = localStorage.getItem('kp_reg') || 'RU';
-  $('#own').innerHTML = `<select id="rg" class="b g">${Object.entries(REG).map(([k, v]) => `<option value="${k}" ${k === reg ? 'selected' : ''}>${v}</option>`).join('')}</select>` +
-    (info && info.imdb ? `<a class="b g" target="_blank" rel="noopener" href="https://www.imdb.com/title/${info.imdb}/">Страница на IMDb</a>` : '');
-  $('#rg').onchange = ev => { localStorage.setItem('kp_reg', ev.target.value); full(pl); };
+  $('#own').innerHTML = (tm ? `<select id="rg" class="b g">${Object.entries(REG).map(([k, v]) => `<option value="${k}" ${k === reg ? 'selected' : ''}>${v}</option>`).join('')}</select>` : '') +
+    (info && info.imdb ? `<a class="b g" target="_blank" rel="noopener" href="https://www.imdb.com/title/${e(info.imdb)}/">Страница на IMDb</a>` : '');
+  if (tm) $('#rg').onchange = ev => { localStorage.setItem('kp_reg', ev.target.value); full(pl); };
   pl.innerHTML = '<div class="empty">Ищем, где смотреть…</div>';
-  try {
-    const r = (await KP.tmdb(`/${type}/${tm}/watch/providers`, '', 'ru-RU')).results[reg];
-    const grp = [['flatrate', 'По подписке'], ['free', 'Бесплатно'], ['rent', 'Аренда'], ['buy', 'Покупка']].filter(g => r && r[g[0]]);
-    pl.style.overflow = 'auto';
-    pl.innerHTML = grp.length ? `<div style="padding:20px;line-height:1.9">${grp.map(([k, n]) => `<b>${n}:</b> ${r[k].map(p => e(p.provider_name)).join(', ')}<br>`).join('')}
-      <a class="b" style="display:inline-block;margin-top:12px" target="_blank" rel="noopener" href="${e(r.link)}">Открыть и выбрать сервис</a>
-      <p style="color:#aaa;font-size:13px;margin-top:10px">Данные TMDB / JustWatch. Если у вас есть файл или своя ссылка, они открываются во вкладках выше.</p></div>`
-      : '<div class="empty">В выбранной стране нет данных о легальных сервисах для этого названия. Смените страну или откройте «Файл» / «Своя ссылка».</div>';
-  } catch (err) { pl.innerHTML = '<div class="empty">Не удалось получить список сервисов. Проверьте интернет.</div>'; }
+  let r = null, tmErr = false;
+  if (tm) { try { r = (await KP.tmdb(`/${type}/${tm}/watch/providers`, '', 'ru-RU')).results[reg]; } catch (err) { tmErr = true; } }
+  await kpP; // данные Кинопоиска могли ещё не успеть прийти
+  const mine = KP.mySvc(), kw = (kpi && kpi.watch) || [];
+  const grp = [['flatrate', 'По подписке'], ['free', 'Бесплатно'], ['rent', 'Аренда'], ['buy', 'Покупка']].filter(g => r && r[g[0]]);
+  const have = new Set(); // сервисы пользователя, где фильм найден (в обоих источниках)
+  const mark = n => { const k = KP.svcKey(n); if (k && mine.includes(k)) { have.add(KP.SVC[k][0]); return ' <span class="have">✓ есть у вас</span>'; } return ''; };
+  const tmHtml = grp.map(([k, n]) => `<b>${n}:</b> ${r[k].map(p => e(p.provider_name) + mark(p.provider_name)).join(', ')}<br>`).join('') +
+    (grp.length ? `<a class="b" style="display:inline-block;margin:10px 0 4px" target="_blank" rel="noopener" href="${e(r.link)}">Открыть и выбрать сервис</a><br><small class="src">Данные TMDB / JustWatch (${e(REG[reg] || reg)})</small>` : '');
+  const kpHtml = kw.length ? `<b>На Кинопоиске найдено:</b><div class="wl">${kw.map(w => `<a class="b g" target="_blank" rel="noopener" href="${e(w.url)}">${e(w.name)}</a>${mark(w.name)}`).join('')}</div><small class="src">Данные Кинопоиска</small>` : '';
+  const chips = `<div class="svc"><b>Мои подписки:</b> ${Object.entries(KP.SVC).map(([k, v]) => `<button type="button" class="chip ${mine.includes(k) ? 'on' : ''}" data-k="${k}">${v[0]}</button>`).join('')}</div>`;
+  const sum = mine.length ? (have.size ? `<div class="okbox">✅ Можно смотреть по вашей подписке: ${[...have].map(e).join(', ')}</div>` : '<div class="nobox">В ваших сервисах этого фильма не нашлось</div>') : '';
+  const body = [sum, tmHtml, kpHtml].filter(Boolean).join('<hr>');
+  pl.style.overflow = 'auto';
+  pl.innerHTML = `<div style="padding:20px;line-height:1.9">${body || `<div class="empty" style="height:auto;padding:10px 0">${tmErr && !kw.length ? 'Не удалось получить список сервисов. Проверьте интернет.' : 'Нет данных о легальных сервисах для этого названия. Смените страну или откройте «Файл» / «Своя ссылка».'}</div>`}
+    ${chips}<p style="color:#aaa;font-size:13px;margin-top:10px">Если у вас есть файл или своя ссылка, они открываются во вкладках выше.</p></div>`;
+  pl.querySelector('.svc').onclick = ev => { const k = ev.target.dataset.k; if (!k) return; localStorage.setItem('kp_svc', JSON.stringify(mine.includes(k) ? mine.filter(x => x !== k) : [...mine, k])); full(pl); };
 }
 async function trailer(pl) {
   pl.innerHTML = '<div class="empty">Ищем трейлер…</div>';

@@ -55,6 +55,34 @@ const KP = {
       runtime: m.runtime || ((m.episode_run_time || [45])[0] * (m.number_of_episodes || 1))
     };
   },
+  // --- Кинопоиск: запросы идут через наш сервер (/api/kp/…), ключ в браузер не попадает. TMDB остаётся основным источником ---
+  kp(path) { return this.api('/kp' + path); },
+  // найти фильм на Кинопоиске по IMDb ID / TMDB ID / названию и году; null, если не нашли или Кинопоиск недоступен
+  async kpMatch(m) {
+    try { return await this.kp('/match?' + new URLSearchParams({ imdb: m.imdb || '', tmdb: m.tmdb || '', title: m.title || '', year: m.year || '' })); }
+    catch (e) { return null; }
+  },
+  // данные TMDB главные; Кинопоиск добавляет рейтинги, ссылку и то, чего не хватает (постер, описание, жанры)
+  mergeKp(it, k) {
+    if (!k) return it;
+    return { ...it, kpId: k.kp, kpUrl: k.url, ratingKp: k.ratingKp, ratingImdb: k.ratingImdb,
+      poster: it.poster || k.poster, overview: it.overview || k.overview, imdb: it.imdb || k.imdb,
+      genres: (it.genres && it.genres.length) ? it.genres : k.genres, runtime: it.runtime || k.runtime };
+  },
+  // карточка из TMDB + Кинопоиск
+  async fromTmdbPlus(id, type) { const b = await this.fromTmdb(id, type); return this.mergeKp(b, await this.kpMatch(b)); },
+  // карточка по Кинопоиску: основа — TMDB (если Кинопоиск знает его ID), иначе данные самого Кинопоиска
+  async fromKp(id) {
+    const k = await this.kp('/movie/' + id); let base = null;
+    if (k.tmdb) { try { base = await this.fromTmdb(k.tmdb, k.type); } catch (e) {} }
+    if (base && k.year && base.year && Math.abs(base.year - k.year) > 1) base = null; // ID TMDB для фильмов и сериалов пересекаются
+    if (!base) base = { type: k.type, title: k.title, year: k.year, poster: k.poster, genres: k.genres, seasons: [], w: [], director: '', overview: k.overview, imdb: k.imdb, runtime: k.runtime };
+    return this.mergeKp(base, k);
+  },
+  // стриминговые сервисы пользователя («у меня есть Иви и Кинопоиск»): названия из TMDB и Кинопоиска приводятся к одному ключу
+  SVC: { kp: ['Кинопоиск', ['кинопоиск', 'kinopoisk']], ivi: ['Иви', ['иви', 'ivi']], okko: ['Okko', ['okko']], wink: ['Wink', ['wink']], premier: ['Premier', ['premier']], kion: ['KION', ['kion']], start: ['START', ['start']], more: ['more.tv', ['more']] },
+  svcKey(name) { const n = String(name || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''); return Object.keys(this.SVC).find(k => this.SVC[k][1].some(a => n.startsWith(a))) || ''; },
+  mySvc() { try { return JSON.parse(localStorage.getItem('kp_svc')) || []; } catch (e) { return []; } },
   // --- ручные карточки ---
   // постер: только http(s)-ссылка или картинка data:image; символы, ломающие CSS url('…'), кодируются
   safePoster(u) {
@@ -84,7 +112,7 @@ const KP = {
   find(l, t, y) { return l.find(i => i.title.toLowerCase() === t.toLowerCase() && String(i.year) === String(y)); },
   // добавление с проверкой дубля «название + год»
   add(it) {
-    const l = this.load(), ex = this.find(l, it.title, it.year);
+    const l = this.load(), ex = this.find(l, it.title, it.year) || (it.tmdb && l.find(i => i.tmdb === it.tmdb && i.type === it.type)) || (it.kpId && l.find(i => i.kpId === it.kpId));
     if (ex) return { dup: ex };
     it = { status: 'plan', rating: 0, tags: [], genres: [], collection: '', source: 'stream', url: '', inv: '', review: '', progress: '', runtime: 0, ...it,
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), added: Date.now(), upd: Date.now() };

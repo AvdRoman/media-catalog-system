@@ -23,12 +23,9 @@
   <div id="remind"></div>
 
   <div class="addbar edit">
-    <button class="b" id="addTmdb">Найти в TMDB</button>
+    <button class="b" id="addTmdb">Найти в TMDB / Кинопоиске</button>
     <button class="b" id="addMan">Создать свою карточку</button>
     <button class="b g" id="demo">Демо-фильмы (бесплатные)</button>
-    <label class="b g">Сканировать папку<input id="scan" type="file" webkitdirectory multiple hidden></label>
-    <label class="b g">Импорт JSON<input id="imp" type="file" accept=".json" hidden></label>
-    <button class="b g" id="expJ">Экспорт JSON</button><button class="b g" id="expC">Экспорт CSV</button>
   </div>
 
   <div class="tools">
@@ -40,14 +37,17 @@
     <select id="so"><option value="added">Сначала новые</option><option value="title">По названию</option><option value="rating">По оценке</option><option value="year">По году</option></select>
   </div>
 
-  <div class="grid" id="grid"></div>
+    <div class="grid" id="grid"></div>
+  <h2 id="unf-h">Недосмотренное</h2>
+  <div id="unf"></div>
   <h2>Аналитика</h2>
   <div class="stats" id="stats"></div>
 </main></div>
 
 <dialog id="dTmdb">
-  <h3>Поиск в TMDB</h3>
-  <input id="tq" placeholder="Название фильма или сериала" autocomplete="off">
+  <h3>Поиск фильма или сериала</h3>
+  <div class="tabs" id="srcTabs" style="margin:8px 0"><button type="button" class="b on" data-src="tmdb">TMDB</button><button type="button" class="b" data-src="kp">Кинопоиск</button></div>
+  <input id="tq" placeholder="Название, ID IMDb (tt…) или ссылка на kinopoisk.ru" autocomplete="off">
   <div class="sr" id="tres"></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="b" id="tmMan">Не нашли? Создать карточку</button><button class="b g" onclick="dTmdb.close()">Закрыть</button></div>
 </dialog>
@@ -130,8 +130,8 @@ function render() {
     [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.collection].join(' ').toLowerCase().includes(q));
   const so = $('#so').value;
   a.sort((x, y) => so === 'title' ? x.title.localeCompare(y.title) : so === 'rating' ? y.rating - x.rating : so === 'year' ? y.year - x.year : y.added - x.added);
-  $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB, вручную или сканированием папки.</p>';
-  remind(L); stats(L);
+  $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB или вручную.</p>';
+    remind(L); report(L); stats(L);
 }
 function card(i) {
   const link = `movie.html?lib=${i.id}`;
@@ -139,6 +139,7 @@ function card(i) {
     <div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>
     <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type]} · ${KP.SRC[i.source]}${i.inv ? ' · ' + e(i.inv) : ''}</small>
       <div>${i.genres.map(g => `<span class="pill">${e(g)}</span>`).join('')}${i.tags.map(g => `<span class="pill">#${e(g)}</span>`).join('')}</div>
+      ${i.ratingKp || i.ratingImdb ? `<small>${[i.ratingKp ? `<a href="${e(i.kpUrl || '#')}" target="_blank" rel="noopener" style="color:#ffb3b3">КП ${e(i.ratingKp)}</a>` : '', i.ratingImdb ? 'IMDb ' + e(i.ratingImdb) : ''].filter(Boolean).join(' · ')}</small>` : ''}
       ${i.progress ? `<small>Прогресс: ${e(i.progress)}</small>` : ''}
       <select data-a="st" class="edit">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === i.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
       <div class="stars edit">${[1, 2, 3, 4, 5].map(n => `<span data-a="r" data-n="${n}" class="${n <= i.rating ? 'on' : ''}">★</span>`).join('')}</div>
@@ -164,6 +165,45 @@ function remind(L) {
   $('#remind').innerHTML = (p.length ? `<div class="remind">Не досмотрено: ${p.map(li).join(', ')}</div>` : '') +
     (w.length ? `<div class="remind">Давно в планах: ${w.slice(0, 6).map(li).join(', ')}${w.length > 6 ? ' и ещё ' + (w.length - 6) : ''}</div>` : '');
 }
+
+// отчёт о недосмотренном
+const DAY = 864e5;
+const lvl = d => d > 60 ? 'bad' : d > 14 ? 'mid' : 'ok', ago = d => d < 1 ? 'сегодня' : d + ' дн. назад';
+function bump(id) { // отметить следующую серию без открытия диалога
+  const it = KP.load().find(x => x.id === id), w = it.w || [];
+  for (const s of it.seasons || []) for (let k = 1; k <= s.c; k++)
+    if (!w.includes(code(s.n, k))) { KP.update(id, epSync(it, [...w, code(s.n, k)])); return true; }
+  return false;
+}
+
+function report(L) {
+  const n = Date.now();
+  const a = L.filter(i => i.status === 'progress').map(i => {
+    const tot = i.type === 'tv' ? epTotal(i) : 0, seen = (i.w || []).length, frac = tot ? Math.min(1, seen / tot) : 0;
+    return { i, tot, seen, frac, days: Math.floor((n - (i.upd || i.added || n)) / DAY) };
+  }).sort((x, y) => y.days - x.days);
+  const plans = L.filter(i => i.status === 'plan' && n - i.added > 30 * DAY);
+  const bad = a.filter(r => r.days > 60).length;
+  const row = r => `<div class="un-row" data-id="${r.i.id}">
+    <div class="un-main"><a href="movie.html?lib=${r.i.id}"><b>${e(r.i.title)}</b></a> <small>${KP.TY[r.i.type]} · ${e(r.i.year)}</small>
+      ${r.tot ? `<div class="un-bar"><i style="width:${r.frac * 100}%"></i></div><small>${r.seen} из ${r.tot} серий${r.i.progress ? ' · ' + e(r.i.progress) : ''}</small>` : '<br><small>Начато, но не завершено</small>'}</div>
+    <div class="un-side"><span class="un-badge ${lvl(r.days)}">${ago(r.days)}</span></div>
+    <div class="un-acts edit">
+      ${r.tot ? '<button class="b" data-u="next">+ серия</button>' : `<a class="b" href="movie.html?lib=${r.i.id}">▶ Продолжить</a>`}
+      <button class="b g" data-u="done">✓ Просмотрено</button><button class="b g" data-u="plan">В планы</button>
+    </div></div>`;
+  $('#unf').innerHTML = a.length
+    ? `<div class="un-sum"><div><b>${a.length}</b>незавершённых</div><div><b>${bad}</b>заброшено 60+ дней</div></div>` + a.map(row).join('')
+    : '<p>Незавершённого нет: всё, что начато, досмотрено.</p>';
+  if (plans.length) $('#unf').innerHTML += `<p class="un-plans">Давно в планах (${plans.length}): ${plans.slice(0, 8).map(x => `<a href="movie.html?lib=${x.id}">${e(x.title)}</a>`).join(', ')}${plans.length > 8 ? ' и ещё ' + (plans.length - 8) : ''}</p>`;
+}
+$('#unf').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-u]'); if (!b) return;
+  const id = b.closest('.un-row').dataset.id, u = b.dataset.u;
+  if (u === 'next') { if (!bump(id)) KP.update(id, { status: 'done' }); } else KP.update(id, { status: u });
+  render();
+});
+
 // аналитика
 function bars(m, fmt = v => v) {
   const e2 = Object.entries(m), mx = Math.max(1, ...e2.map(x => x[1]));
@@ -186,22 +226,35 @@ function stats(L) {
     <div><h4>Источники</h4>${bars(top(L.map(i => KP.SRC[i.source])))}</div>`;
 }
 
-// добавление: TMDB
-let tt;
+// добавление: TMDB или Кинопоиск (TMDB остаётся основным источником данных; Кинопоиск добавляет рейтинги и «где смотреть»)
+let tt, src = 'tmdb';
+const KPLINK = /kinopoisk\.(?:ru|dev)\/(?:film|series)\/(\d+)/i;
 $('#addTmdb').onclick = () => { dTmdb.showModal(); $('#tq').focus(); };
-$('#tq').oninput = ev => { clearTimeout(tt); tt = setTimeout(async () => {
-  const q = ev.target.value.trim(); if (q.length < 2) return;
+$('#srcTabs').onclick = ev => { const s = ev.target.dataset.src; if (!s) return; src = s; document.querySelectorAll('#srcTabs .b').forEach(b => b.classList.toggle('on', b.dataset.src === s)); search(); $('#tq').focus(); };
+$('#tq').oninput = () => { clearTimeout(tt); tt = setTimeout(search, 350); };
+async function search() {
+  const q = $('#tq').value.trim(); if (q.length < 2) { $('#tres').innerHTML = ''; return; }
+  const link = q.match(KPLINK), useKp = src === 'kp' || !!link;
   try {
-    let r;
-    if (/^tt\d+$/.test(q)) { const f = await KP.tmdb('/find/' + q, '&external_source=imdb_id'); r = [...f.movie_results.map(x => ({ ...x, media_type: 'movie' })), ...f.tv_results.map(x => ({ ...x, media_type: 'tv' }))]; }
-    else r = (await KP.tmdb('/search/multi', '&query=' + encodeURIComponent(q))).results.filter(x => x.media_type !== 'person').slice(0, 8);
-    $('#tres').innerHTML = r.map(x => `<a data-id="${x.id}" data-t="${x.media_type}"><img src="${x.poster_path ? KP.img + x.poster_path : ''}" alt=""><div>${e(x.title || x.name)}<br><small>${(x.release_date || x.first_air_date || '').slice(0, 4)} · ${x.media_type === 'tv' ? 'Сериал' : 'Фильм'}</small></div></a>`).join('') || 'Ничего не найдено';
-  } catch (err) { $('#tres').textContent = 'Не удалось связаться с TMDB (' + err.message + '). Причину покажет страница check.html.'; }
-}, 350); };
+    let html;
+    if (useKp) { // поиск по Кинопоиску: по названию или по ссылке на страницу фильма
+      const r = link ? [await KP.kp('/movie/' + link[1])] : await KP.kp('/search?q=' + encodeURIComponent(q));
+      html = r.map(x => `<a data-kp="${x.kp}"><img src="${e(KP.safePoster(x.poster))}" alt=""><div>${e(x.title)}<br><small>${e(x.year)} · ${x.type === 'tv' ? 'Сериал' : 'Фильм'}${x.ratingKp ? ' · КП ' + x.ratingKp : ''}</small></div></a>`).join('');
+    } else {
+      let r;
+      if (/^tt\d+$/.test(q)) { const f = await KP.tmdb('/find/' + q, '&external_source=imdb_id'); r = [...f.movie_results.map(x => ({ ...x, media_type: 'movie' })), ...f.tv_results.map(x => ({ ...x, media_type: 'tv' }))]; }
+      else r = (await KP.tmdb('/search/multi', '&query=' + encodeURIComponent(q))).results.filter(x => x.media_type !== 'person').slice(0, 8);
+      html = r.map(x => `<a data-id="${x.id}" data-t="${x.media_type}"><img src="${x.poster_path ? KP.img + x.poster_path : ''}" alt=""><div>${e(x.title || x.name)}<br><small>${(x.release_date || x.first_air_date || '').slice(0, 4)} · ${x.media_type === 'tv' ? 'Сериал' : 'Фильм'}</small></div></a>`).join('');
+    }
+    $('#tres').innerHTML = html || 'Ничего не найдено';
+  } catch (err) { $('#tres').textContent = useKp ? 'Кинопоиск: ' + err.message + ' Попробуйте вкладку TMDB.' : 'Не удалось связаться с TMDB (' + err.message + '). Попробуйте вкладку «Кинопоиск» или откройте check.html.'; }
+}
 $('#tres').onclick = async ev => {
   const a = ev.target.closest('a'); if (!a) return;
-  const r = KP.add(await KP.fromTmdb(a.dataset.id, a.dataset.t));
-  alert(r.dup ? `«${r.dup.title}» уже есть в библиотеке. Дубль не создан.` : 'Добавлено в «В планах»');
+  try {
+    const r = KP.add(a.dataset.kp ? await KP.fromKp(a.dataset.kp) : await KP.fromTmdbPlus(a.dataset.id, a.dataset.t));
+    alert(r.dup ? `«${r.dup.title}» уже есть в библиотеке. Дубль не создан.` : 'Добавлено в «В планах»');
+  } catch (err) { alert('Не удалось получить данные: ' + err.message); return; }
   dTmdb.close(); render();
 };
 // создание и правка карточки вручную
@@ -335,30 +388,6 @@ $('#adds').onclick = () => {
   const n = +$('#newc').value; if (!n) return;
   const s = KP.load().find(x => x.id === epId).seasons || [];
   KP.update(epId, { seasons: [...s, { n: s.length ? s[s.length - 1].n + 1 : 1, c: n }] }); $('#newc').value = ''; openEp(epId); render();
-};
-// сканирование папки с видеофайлами
-$('#scan').onchange = ev => {
-  let n = 0, s = 0;
-  [...ev.target.files].filter(f => /\.(mkv|mp4|avi|webm|mov)$/i.test(f.name)).forEach(f => {
-    const t = f.name.replace(/\.[^.]+$/, '').replace(/[._]+/g, ' ').trim();
-    KP.add({ title: t, year: (t.match(/\b(19|20)\d{2}\b/) || [''])[0], source: 'local', url: f.webkitRelativePath || f.name }).item ? n++ : s++;
-  });
-  alert(`Найдено новых файлов: ${n}. Пропущено дублей: ${s}.`); ev.target.value = ''; render();
-};
-// импорт / экспорт
-const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); };
-$('#expJ').onclick = () => dl('kinoproba-library.json', JSON.stringify(KP.load(), null, 2), 'application/json');
-$('#expC').onclick = () => {
-  const c = v => `"${String(v ?? '').replace(/"/g, '""')}"`, H = ['title', 'year', 'type', 'status', 'rating', 'director', 'genres', 'tags', 'source', 'inv', 'url', 'runtime', 'collection'];
-  dl('kinoproba-library.csv', '\ufeff' + H.join(';') + '\n' + KP.load().map(i => H.map(h => c(Array.isArray(i[h]) ? i[h].join(', ') : i[h])).join(';')).join('\n'), 'text/csv');
-};
-$('#imp').onchange = async ev => {
-  try {
-    const arr = JSON.parse(await ev.target.files[0].text()); let n = 0;
-    arr.forEach(i => { if (i.title && KP.add(i).item) n++; });
-    alert(`Импортировано: ${n}, пропущено дублей: ${arr.length - n}`);
-  } catch (err) { alert('Файл не распознан. Нужен JSON, экспортированный из Kinoproba.'); }
-  ev.target.value = ''; render();
 };
 // режим: личная / корпоративная / публичная (только просмотр)
 $('#mode').value = localStorage.getItem('kp_mode') || 'personal';

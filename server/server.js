@@ -2,6 +2,11 @@
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
+// ключ Кинопоиска хранится в server/.env (файл в git не попадает) или в переменной окружения KINOPOISK_API_KEY
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch (e) {}
+const KP_KEY = (process.env.KINOPOISK_API_KEY || '').trim();
+const KP_API = process.env.KINOPOISK_API_URL || 'https://api.kinopoisk.dev';
+
 const DB_FILE = process.env.DB_PATH || path.join(__dirname, 'kinoproba.db');
 const db = new DatabaseSync(DB_FILE);
 db.exec(`
@@ -123,6 +128,80 @@ route('GET', '/api/users/:name', ({ res, p }) => {
   send(res, 200, { ...u, collections: cols });
 });
 
+// --- Кинопоиск (kinopoisk.dev): запросы идут через сервер, ключ в браузер не попадает ---
+// TMDB остаётся основным источником (постер, описание); Кинопоиск добавляет рейтинги, ссылку и «где смотреть»
+const kpCache = new Map(), kpHits = new Map();
+async function kpGet(p) {
+  const c = kpCache.get(p); if (c && c.t > Date.now()) return c.v; // кэш на 6 часов: экономит дневной лимит запросов
+  const r = await fetch(KP_API + p, { headers: { 'X-API-KEY': KP_KEY, accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+  if (!r.ok) throw Object.assign(new Error('Кинопоиск ответил ' + r.status), { status: r.status });
+  const v = await r.json();
+  if (kpCache.size > 500) kpCache.delete(kpCache.keys().next().value);
+  kpCache.set(p, { v, t: Date.now() + 6 * 36e5 }); return v;
+}
+// не больше 40 запросов в минуту с одного адреса, чтобы посторонние не сожгли лимит ключа
+const kpLimit = req => { const ip = req.socket.remoteAddress, n = Date.now(), a = (kpHits.get(ip) || []).filter(t => t > n - 6e4); a.push(n); kpHits.set(ip, a); return a.length <= 40; };
+const httpUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+// ответ Кинопоиска -> компактная карточка для сайта
+function kpNorm(m) {
+  const tv = m.isSeries === true || ['tv-series', 'animated-series'].includes(m.type), ex = m.externalId || {}, rt = m.rating || {};
+  return {
+    kp: m.id, title: m.name || m.alternativeName || m.enName || '', original: m.alternativeName || m.enName || '',
+    year: m.year ? String(m.year) : '', type: tv ? 'tv' : 'movie',
+    poster: httpUrl((m.poster || {}).url || (m.poster || {}).previewUrl),
+    overview: m.description || m.shortDescription || '',
+    genres: (m.genres || []).map(g => g.name).filter(Boolean), countries: (m.countries || []).map(c => c.name).filter(Boolean),
+    runtime: m.movieLength || m.seriesLength || 0, ageRating: m.ageRating || null,
+    ratingKp: +Number(rt.kp || 0).toFixed(1), ratingImdb: +Number(rt.imdb || 0).toFixed(1), votesKp: (m.votes || {}).kp || 0,
+    imdb: ex.imdb || '', tmdb: ex.tmdb || null,
+    url: `https://www.kinopoisk.ru/${tv ? 'series' : 'film'}/${m.id}/`,
+    // где смотреть (Иви, Okko, Кинопоиск и др.): есть только в полной карточке
+    watch: ((m.watchability || {}).items || []).map(w => ({ name: w.name || '', url: httpUrl(w.url), logo: httpUrl((w.logo || {}).url) })).filter(w => w.name && w.url)
+  };
+}
+const bad = m => Object.assign(new Error(m), { status: 400 });
+const kpRoute = (pattern, fn) => route('GET', pattern, async ctx => {
+  const { req, res } = ctx;
+  if (!KP_KEY) return err(res, 503, 'Ключ Кинопоиска не задан: добавьте KINOPOISK_API_KEY в server/.env и перезапустите сервер');
+  if (!kpLimit(req)) return err(res, 429, 'Слишком много запросов, подождите минуту');
+  try { send(res, 200, await fn(ctx)); }
+  catch (e) {
+    console.error('Кинопоиск:', e.message);
+    const s = e.status;
+    if (s === 400) return err(res, 400, e.message);
+    if (s === 404) return err(res, 404, 'Не найдено на Кинопоиске');
+    err(res, 502, s === 401 || s === 403 ? 'Кинопоиск отклонил ключ' : s === 429 ? 'Дневной лимит запросов Кинопоиска исчерпан' : 'Кинопоиск сейчас недоступен');
+  }
+});
+route('GET', '/api/kp/status', ({ res }) => send(res, 200, { enabled: !!KP_KEY }));
+// поиск по названию
+kpRoute('/api/kp/search', async ({ q }) => {
+  const k = String(q.get('q') || '').trim().slice(0, 100); if (k.length < 2) return [];
+  return ((await kpGet('/v1.4/movie/search?limit=8&query=' + encodeURIComponent(k))).docs || []).map(kpNorm);
+});
+// полная карточка по ID Кинопоиска
+kpRoute('/api/kp/movie/:id', async ({ p }) => {
+  if (!/^\d{1,9}$/.test(p[0])) throw bad('Некорректный ID Кинопоиска');
+  return kpNorm(await kpGet('/v1.4/movie/' + p[0]));
+});
+// сопоставление: ищем фильм из TMDB на Кинопоиске по IMDb ID, затем по TMDB ID, затем по точному названию и году (null, если не уверены)
+kpRoute('/api/kp/match', async ({ q }) => {
+  const imdb = q.get('imdb') || '', tmdb = q.get('tmdb') || '', title = (q.get('title') || '').trim().slice(0, 150), year = +q.get('year') || 0;
+  const yearOk = m => !year || !m.year || Math.abs(m.year - year) <= 1; // год защищает от совпавших «чужих» ID
+  const first = d => (d.docs || []).find(yearOk);
+  let m = null;
+  if (/^tt\d{7,10}$/.test(imdb)) m = first(await kpGet('/v1.4/movie?limit=3&externalId.imdb=' + imdb));
+  if (!m && /^\d{1,9}$/.test(tmdb)) m = first(await kpGet('/v1.4/movie?limit=3&externalId.tmdb=' + tmdb));
+  if (!m && title && year) {
+    const low = title.toLowerCase();
+    m = ((await kpGet('/v1.4/movie/search?limit=10&query=' + encodeURIComponent(title))).docs || [])
+      .find(x => x.year && Math.abs(x.year - year) <= 1 && [x.name, x.alternativeName, x.enName].some(n => String(n || '').toLowerCase() === low));
+  }
+  if (!m) return null;
+  if (!m.watchability) m = await kpGet('/v1.4/movie/' + m.id);
+  return kpNorm(m);
+});
+
 // --- статика сайта (папку server с базой наружу не отдаём) ---
 const ROOT = path.join(__dirname, '..', 'public'), SRV = path.join(ROOT, 'server');
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ico': 'image/x-icon' };
@@ -153,13 +232,14 @@ http.createServer(async (req, res) => {
   } catch (e) { console.error(e); return err(res, 500, 'Ошибка сервера'); }
   let body; try { body = await readBody(req, r.maxBody); } catch (e) { return err(res, 400, 'Некорректный запрос'); }
   const ctx = { req, res, body, uid, q: u.searchParams, p: u.pathname.match(r.re).slice(1).map(decodeURIComponent) };
-  try { r.fn(ctx); } catch (e) { console.error(e); err(res, 500, 'Ошибка сервера'); }
+  try { await r.fn(ctx); } catch (e) { console.error(e); if (!res.headersSent) err(res, 500, 'Ошибка сервера'); }
 }).listen(process.env.PORT || 3000, () => {
   const port = process.env.PORT || 3000;
   console.log('Kinoproba: http://localhost:' + port);
   for (const list of Object.values(require('os').networkInterfaces()))
     for (const a of list || []) if (a.family === 'IPv4' && !a.internal) console.log('  из локальной сети (Wi-Fi): http://' + a.address + ':' + port);
   console.log('База данных: ' + DB_FILE);
+  console.log(KP_KEY ? 'Кинопоиск: ключ найден' : 'Кинопоиск: ключ не задан (добавьте KINOPOISK_API_KEY в server/.env), работает только TMDB');
 });
 
 // при остановке (Ctrl+C) всё из журнала WAL переносится в сам файл .db: его одного достаточно, чтобы скопировать или передать базу

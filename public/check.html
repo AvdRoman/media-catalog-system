@@ -65,6 +65,18 @@ const limit = (p, ms = 8000) => Promise.race([p, new Promise((_, no) => setTimeo
     const ok = await limit(new Promise(res => { const im = new Image(); im.onload = () => res(true); im.onerror = () => res(false); im.src = KP.img + poster; })).catch(() => false);
     ok ? r(true, 'Картинки загружаются.') : r(false, 'Сервер картинок image.tmdb.org недоступен из вашей сети (его часто блокируют отдельно от API).');
   }
+
+  // 5. Кинопоиск (запросы идут через сервер проекта, ключ лежит в server/.env)
+  r = row('Кинопоиск: рейтинги и «где смотреть»');
+  try {
+    const st = await limit(fetch('/api/kp/status')).then(x => x.json());
+    if (!st.enabled) r(false, 'Ключ не задан. Создайте файл server/.env со строкой KINOPOISK_API_KEY=ваш_ключ и перезапустите «node server.js».');
+    else {
+      const x = await limit(fetch('/api/kp/search?q=' + encodeURIComponent('Матрица')), 12000), j = await x.json().catch(() => null);
+      if (x.ok && Array.isArray(j) && j.length) r(true, 'Кинопоиск отвечает, ключ принят. Пример: ' + j[0].title + ' (' + j[0].year + '), рейтинг КП ' + (j[0].ratingKp || '—') + '.');
+      else r(false, (j && j.error) || ('Кинопоиск ответил кодом ' + x.status + '.'));
+    }
+  } catch (e) { r(false, 'Нет связи с сервером проекта (' + e.message + ').'); }
 })();
 </script>
 </body></html>
