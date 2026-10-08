@@ -154,3 +154,28 @@ dialog .colrow input { width: auto; margin: 0; }
 #dItem .seg { margin: 12px 0 4px; }
 .cform summary { cursor: pointer; font-weight: 600; }
 .tabs .b.on { background: #fff; color: #000; }
+
+/* сериал: сезоны и серии на странице фильма */
+.eps-box { margin: 22px 0; } .eps-box:empty { display: none; }
+.eps-h { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; } .eps-h h2 { margin: 0; font-size: 22px; } .eps-h .sum { color: #ccc; font-size: 14px; margin-right: auto; }
+.eps-bar { height: 6px; background: rgba(255,255,255,.12); border-radius: 6px; overflow: hidden; margin: 10px 0; } .eps-bar i { display: block; height: 100%; background: #d70000; }
+.eps-list { list-style: none; margin: 12px 0 0; padding: 0; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.eps-list label { display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,.07); border-radius: 10px; padding: 8px 12px; cursor: pointer; color: #fff; margin: 0; }
+.eps-list li.seen label { background: rgba(215,0,0,.22); } .eps-list input { width: auto; margin: 0; } .eps-list b { min-width: 26px; } .eps-list small { display: block; color: #bbb; }
+
+/* добавление и удаление серий (диалог «Серии» в библиотеке и страница сериала) */
+.eps-ed { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; font-size: 14px; color: #ccc; }
+.eps-ed input { width: 76px; margin: 0; background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 6px 10px; font: inherit; outline: none; }
+.eps-ed input:focus { border-color: #d70000; box-shadow: 0 0 10px #d70000; }
+.eps-ed .b { padding: 6px 12px; font-size: 13px; }
+.eps-ed-box { margin-top: 14px; } .eps-ed-box summary { cursor: pointer; color: #ccc; font-size: 14px; padding: 4px 0; }
+
+/* сериал: просмотр серии (файл с устройства или ссылка) */
+.eps-list li { display: flex; gap: 6px; align-items: stretch; } .eps-list li label { flex: 1; min-width: 0; }
+.eps-list li.cur label { outline: 2px solid #d70000; }
+.eps-list .lkm { margin-left: auto; font-style: normal; font-size: 13px; }
+.eps-list .ep-play { flex: none; padding: 0 14px; border-radius: 10px; }
+.ep-now { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; flex-wrap: wrap; } .ep-now:empty { display: none; }
+.ep-now .ep-t { flex: 1; min-width: 160px; color: #fff; } .ep-now .ep-t small { color: #bbb; margin-left: 6px; }
+.ep-now .b { padding: 6px 14px; }
+.b:disabled, .b:disabled:hover { opacity: .4; cursor: default; background: #d70000; } .b.g:disabled, .b.g:disabled:hover { background: rgba(255,255,255,.12); }

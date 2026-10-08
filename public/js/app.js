@@ -1,12 +1,12 @@
 const KP = {
-  key: 'd683225cef86fa8a035261070445fc66', // лучше заменить на свой ключ TMDB
+  key: 'd683225cef86fa8a035261070445fc66', 
   tmdbUrl: 'https://api.themoviedb.org/3',
   img: 'https://image.tmdb.org/t/p/w500',
-  // --- аккаунт: у каждого пользователя своя библиотека; сервер (SQLite) — главное хранилище ---
+  //аккаунт: у каждого пользователя своя библиотека; сервер (SQLite) — главное хранилище
   user: JSON.parse(localStorage.getItem('kp_user') || 'null'), tok: localStorage.getItem('kp_tok') || '',
   lk() { return 'kp_lib_' + (this.user ? this.user.id : 'guest'); },
   load() { try { return (JSON.parse(localStorage.getItem(this.lk())) || []).map(i => this.norm(i)); } catch (e) { return []; } },
-  // фильм может входить в несколько подборок: названия лежат в массиве cols (старое поле collection с одной подборкой переносится сюда)
+  // фильм может входить в несколько подборок: названия лежат в массиве cols 
   norm(i) {
     if (!i || typeof i !== 'object') return i;
     i.cols = [...new Set([...(Array.isArray(i.cols) ? i.cols : []), i.collection].map(c => String(c || '').trim()).filter(Boolean))]; delete i.collection; return i;
@@ -51,16 +51,17 @@ const KP = {
   async fromTmdb(id, type = 'movie') {
     const m = await this.tmdb(`/${type}/${id}`, '&append_to_response=credits,external_ids');
     const dir = ((m.credits.crew || []).find(c => c.job === 'Director') || (m.created_by || [])[0] || {}).name || '';
+    const ss = (m.seasons || []).filter(s => s.season_number > 0 && s.episode_count).map(s => ({ n: s.season_number, c: s.episode_count }));
     return {
       tmdb: +id, type: type === 'tv' ? 'tv' : 'movie',
       title: m.title || m.name, year: (m.release_date || m.first_air_date || '').slice(0, 4),
       poster: m.poster_path ? this.img + m.poster_path : '', genres: (m.genres || []).map(g => g.name),
-      seasons: (m.seasons || []).filter(s => s.season_number > 0 && s.episode_count).map(s => ({ n: s.season_number, c: s.episode_count })), w: [],
+      seasons: ss, w: [], ...(type === 'tv' ? { tmS: ss.map(x => ({ ...x })) } : {}), // tmS — снимок сезонов TMDB: по нему подтягиваются новые серии
       director: dir, overview: m.overview || '', imdb: (m.external_ids || {}).imdb_id || '',
       runtime: m.runtime || ((m.episode_run_time || [45])[0] * (m.number_of_episodes || 1))
     };
   },
-  // --- Кинопоиск: запросы идут через наш сервер (/api/kp/…), ключ в браузер не попадает. TMDB остаётся основным источником ---
+  //  Кинопоиск: запросы идут через наш сервер (/api/kp/…), ключ в браузер не попадает. TMDB остаётся основным источником ---
   kp(path) { return this.api('/kp' + path); },
   // найти фильм на Кинопоиске по IMDb ID / TMDB ID / названию и году; null, если не нашли или Кинопоиск недоступен
   async kpMatch(m) {
@@ -88,6 +89,73 @@ const KP = {
   SVC: { kp: ['Кинопоиск', ['кинопоиск', 'kinopoisk']], ivi: ['Иви', ['иви', 'ivi']], okko: ['Okko', ['okko']], wink: ['Wink', ['wink']], premier: ['Premier', ['premier']], kion: ['KION', ['kion']], start: ['START', ['start']], more: ['more.tv', ['more']] },
   svcKey(name) { const n = String(name || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''); return Object.keys(this.SVC).find(k => this.SVC[k][1].some(a => n.startsWith(a))) || ''; },
   mySvc() { try { return JSON.parse(localStorage.getItem('kp_svc')) || []; } catch (e) { return []; } },
+  // --- сериалы: коды серий S1E5, прогресс и статус (одна логика для библиотеки, страницы сериала и поиска) ---
+  epCode(s, k) { return 'S' + s + 'E' + k; },
+  epTotal(it) { return (it.seasons || []).reduce((s, x) => s + x.c, 0); },
+  epSync(it, w) { // w — список просмотренных кодов; возвращает поля карточки: w, progress, status
+    const num = c => c.match(/\d+/g).map(Number), tot = this.epTotal(it);
+    if (!w.length) return { w, progress: '', status: 'plan' };
+    const last = w.slice().sort((a, b) => num(a)[0] - num(b)[0] || num(a)[1] - num(b)[1]).pop();
+    return { w, progress: last, status: tot && w.length >= tot ? 'done' : 'progress' };
+  },
+  epCodes(s) { return Array.from({ length: s.c }, (_, k) => this.epCode(s.n, k + 1)); },
+  // добавление и удаление серий: структура хранится как seasons: [{ n: номер сезона, c: число серий }], отметки — в w ---
+  // Записывает новую структуру и сразу приводит всё остальное в порядок: убирает отметки несуществующих серий,
+  // пересчитывает прогресс и статус, держит среднюю длительность серии (runtime — на весь сериал). Дату изменения не трогает,
+  // если статус не поменялся (добавить серию — не значит посмотреть: напоминания «давно не смотрели» не сбрасываются).
+  setSeasons(id, seasons, extra = {}) {
+    const i = this.load().find(x => x.id === id); if (!i) return false;
+    const S = [...new Map((seasons || []).map(s => [Math.floor(+s.n), Math.min(999, Math.floor(+s.c))]).filter(([n, c]) => n >= 1 && c >= 1)).entries()]
+      .map(([n, c]) => ({ n, c })).sort((a, b) => a.n - b.n);
+    const old = this.epTotal(i), tot = this.epTotal({ seasons: S }), ok = new Set(S.flatMap(s => this.epCodes(s)));
+    const was = old > 0 && (i.w || []).length >= old, w = (i.w || []).filter(c => ok.has(c)); // was — сериал был досмотрен до конца
+    const p = { seasons: S, w, progress: this.epSync({ seasons: S }, w).progress, ...extra };
+    if (i.eu) p.eu = Object.fromEntries(Object.entries(i.eu).filter(([c]) => ok.has(c))); // eu — ссылки на серии: у удалённых серий ссылки убираем
+    if (i.runtime && old && tot && tot !== old) p.runtime = Math.round(i.runtime / old * tot);
+    if (w.length && w.length >= tot) p.status = 'done';
+    else if (w.length && (was || i.status === 'plan')) p.status = 'progress'; // вышли новые серии: «просмотрено» снова становится «в процессе»
+    return this.update(id, p, !p.status || p.status === i.status);
+  },
+  // добавить cnt серий в конец сезона n
+  addEps(id, n, cnt = 1) {
+    const i = this.load().find(x => x.id === id); if (!i) return false;
+    const S = (i.seasons || []).map(s => ({ ...s })), s = S.find(x => x.n === n); if (!s) return false;
+    s.c += Math.max(1, Math.min(999, Math.floor(+cnt) || 1)); return this.setSeasons(id, S);
+  },
+  // убрать последнюю серию сезона n (если она была единственной, исчезает и сезон); из середины серии не убираем: иначе съедут номера и отметки
+  delLastEp(id, n) {
+    const i = this.load().find(x => x.id === id); if (!i) return false;
+    return this.setSeasons(id, (i.seasons || []).map(s => s.n === n ? { ...s, c: s.c - 1 } : s));
+  },
+  // новый сезон из cnt серий (номер — следующий за последним)
+  addSeason(id, cnt) {
+    const i = this.load().find(x => x.id === id); if (!i) return false;
+    const S = (i.seasons || []).map(s => ({ ...s })), c = Math.floor(+cnt);
+    if (!(c >= 1)) return false; return this.setSeasons(id, [...S, { n: Math.max(0, ...S.map(s => s.n)) + 1, c: Math.min(999, c) }]);
+  },
+  delSeason(id, n) {
+    const i = this.load().find(x => x.id === id); if (!i) return false;
+    return this.setSeasons(id, (i.seasons || []).filter(s => s.n !== n));
+  },
+  // сверка с TMDB: подтягивает то, что у TMDB ПОЯВИЛОСЬ с прошлой сверки (новые сезоны и серии у идущих сериалов).
+  // Правки пользователя не затираются: удалённый вручную сезон не возвращается, добавленные вручную серии остаются.
+  // tmS — «снимок» сезонов TMDB на момент прошлой сверки. Возвращает, сколько серий добавилось.
+  syncTmdbSeasons(id, remote) {
+    const i = this.load().find(x => x.id === id); if (!i || i.type !== 'tv' || !Array.isArray(remote) || !remote.length) return 0;
+    const rem = remote.map(s => ({ n: s.n, c: s.c })), prev = Array.isArray(i.tmS) ? i.tmS : null, S = (i.seasons || []).map(s => ({ ...s }));
+    for (const r of rem) {
+      const p = prev && prev.find(x => x.n === r.n), loc = S.find(x => x.n === r.n);
+      if (!p) { if (loc) loc.c = Math.max(loc.c, r.c); else S.push({ ...r }); } // первая сверка или совсем новый сезон
+      else if (r.c > p.c && loc) loc.c = Math.max(loc.c, r.c);                  // у TMDB стало больше серий, чем было
+    }
+    S.sort((a, b) => a.n - b.n);
+    const key = a => a.map(s => s.n + ':' + s.c).join(','), before = this.epTotal(i);
+    if (key(S) === key(i.seasons || []) && prev && key(rem) === key(prev)) return 0;
+    this.setSeasons(id, S, { tmS: rem });
+    return Math.max(0, this.epTotal({ seasons: S }) - before);
+  },
+  // карточка этого TMDB-ID и типа уже в библиотеке? (ID фильмов и сериалов в TMDB пересекаются, поэтому тип обязателен)
+  inLib(id, type) { return this.load().find(i => i.tmdb === +id && (i.type === 'tv') === (type === 'tv')) || null; },
   // --- ручные карточки ---
   // постер: только http(s)-ссылка или картинка data:image; символы, ломающие CSS url('…'), кодируются
   safePoster(u) {
@@ -123,9 +191,9 @@ const KP = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), added: Date.now(), upd: Date.now() };
     l.push(it); if (!this.save(l)) return { fail: true }; return { item: it };
   },
-  update(id, p) {
+  update(id, p, quiet = false) { // quiet — не менять дату изменения (по ней считаются напоминания «давно не смотрели»)
     const l = this.load(), i = l.find(x => x.id === id); if (!i) return;
-    Object.assign(i, p, { upd: Date.now() });
+    Object.assign(i, p, { upd: quiet ? i.upd : Date.now() });
     if (p.status === 'done' && !i.watched) i.watched = Date.now();
     return this.save(l);
   },

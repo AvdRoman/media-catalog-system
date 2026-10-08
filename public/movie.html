@@ -11,6 +11,8 @@
   <nav><ul>
     <li><a href="index.html">Главная</a></li>
     <li><a href="library.html">Библиотека</a></li>
+    <li><a href="movies.html">Фильмы</a></li>
+    <li><a href="series.html">Сериалы</a></li>
     <li><a href="community.html">Подборки</a></li>
     <li><a href="spaces.html">Каталоги</a></li>
     <li><a href="profile.html" id="me">Вход</a></li>
@@ -28,6 +30,7 @@
     <p id="desc"></p>
 
     <div class="ctl" id="ctl"></div>
+    <div class="eps-box" id="eps"></div>
     <div id="rvMine"></div>
 
     <div class="tabs">
@@ -36,6 +39,7 @@
       <button class="b" data-tab="full">Полная версия</button>
       <button class="b" data-tab="link">Своя ссылка</button>
     </div>
+    <div class="ep-now" id="epNow"></div>
     <div class="player" id="player"></div>
     <div class="own" id="own"></div>
     <div class="rv-others" id="rvOthers"></div>
@@ -57,8 +61,13 @@ async function init() {
     try { info = await KP.fromTmdb(tm, type); fill(info); }
     catch (err) { if (!item) { $('#title').textContent = 'Не удалось загрузить фильм (' + err.message + ').'; $('#desc').innerHTML = 'Причину покажет <a href="check.html" style="color:#ffb3b3">страница диагностики</a>.'; } else fill(item); }
   }
-  if (!item && info) item = KP.load().find(i => i.tmdb === +tm) || KP.find(KP.load(), info.title, info.year) || null;
-  controls(); mine(); kpP = loadKp(); kpP.then(others); tab(item && item.source === 'stream' && item.url ? 'link' : 'trailer');
+  if (!item && info) item = KP.inLib(tm, type) || KP.find(KP.load(), info.title, info.year) || null;
+  if (item && item.type === 'tv' && tm && info && info.seasons && info.seasons.length) { // у идущих сериалов подтягиваем новые сезоны и серии из TMDB
+    const n = KP.syncTmdbSeasons(item.id, info.seasons); item = KP.load().find(x => x.id === item.id) || item;
+    if (n) epNote = 'Из TMDB добавлено серий: ' + n;
+  }
+  controls(); mine(); kpP = loadKp(); kpP.then(others);
+  tab(type === 'tv' ? (epUrl(epCur()) ? 'link' : 'trailer') : item && item.source === 'stream' && item.url ? 'link' : 'trailer');
 }
 // Кинопоиск дополняет TMDB: рейтинги, ссылка, «где смотреть»; если он недоступен, страница работает как раньше
 async function loadKp() {
@@ -85,12 +94,13 @@ function fill(m) {
 // статус и оценка прямо на странице фильма
 function controls() {
   const c = $('#ctl');
-  if (!item) { c.innerHTML = '<button class="b" id="add">+ В библиотеку</button>'; $('#add').onclick = () => { item = KP.add(info).item || KP.find(KP.load(), info.title, info.year); controls(); mine(); }; return; }
+  if (!item) { c.innerHTML = '<button class="b" id="add">+ В библиотеку</button>'; $('#add').onclick = () => { item = KP.add(info).item || KP.find(KP.load(), info.title, info.year); controls(); mine(); }; eps(); return; }
   c.innerHTML = `<select id="st">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === item.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
     <span class="stars">${[1, 2, 3, 4, 5].map(n => `<span data-n="${n}" class="${n <= item.rating ? 'on' : ''}">★</span>`).join('')}</span>
     <a class="b g" href="library.html">В библиотеку</a>`;
   $('#st').onchange = ev => { KP.update(item.id, { status: ev.target.value }); item.status = ev.target.value; };
   c.querySelector('.stars').onclick = ev => { const n = +ev.target.dataset.n; if (!n) return; item.rating = item.rating === n ? 0 : n; KP.update(item.id, { rating: item.rating }); controls(); };
+  eps();
 }
 // моя рецензия: пишется и правится прямо здесь, без открытия редактора всей карточки
 function mine() {
@@ -112,26 +122,141 @@ async function others() {
     box.innerHTML = `<h2>Рецензии пользователей${list.length ? ' (' + list.length + ')' : ''}</h2>` + (list.map(x => KP.rvView(x, x.user)).join('') || '<p class="rv-none">Других рецензий на этот фильм пока нет.</p>');
   } catch (err) { box.innerHTML = ''; }
 }
+// сериал: сезоны и серии с названиями из TMDB; отметки лежат в карточке библиотеки (поле w), так же как в окне «Серии» на странице библиотеки.
+// Серии можно добавлять и убирать здесь же («Добавить или убрать серии»): нужно для идущих сериалов, ручных карточек и сериалов без данных TMDB
+let epSeason = 0, edOpen = false, epNote = ''; const epCache = {};
+const box = $('#eps');
+// просмотр серии: файл с устройства или ссылка — как у фильма, но отдельно для каждой серии.
+// Ссылки лежат в карточке (eu = { 'S1E3': 'https://…' }) и сохраняются вместе с библиотекой. Файл с устройства на сервер не загружается (как у фильмов):
+// он запоминается для серии до перезагрузки страницы (epFile), дальше его нужно выбрать снова
+let curEp = '', curTab = 'trailer', epEnded = false; const epFile = {};
+const isTv = () => type === 'tv';
+const epAll = () => ((item && item.seasons && item.seasons.length ? item.seasons : info && info.seasons) || []).flatMap(s => KP.epCodes(s));
+const epCur = () => { const all = epAll(); if (curEp && all.includes(curEp)) return curEp; const w = (item && item.w) || []; return all.find(c => !w.includes(c)) || all[0] || ''; }; // не выбрана серия — берём первую непросмотренную
+const epUrl = c => (item && item.eu && item.eu[c]) || '';
+const epNum = c => c.match(/\d+/g).map(Number);
+function epLabel(c) { const [s, k] = epNum(c), ep = (epCache[s] || [])[k - 1]; return `Сезон ${s}, серия ${k}` + (ep && ep.name ? ' — ' + ep.name : ''); }
+function bar() { // строка «‹ серия ›» над плеером: только для сериала и только на вкладках «Файл» и «Своя ссылка»
+  const c = isTv() && (curTab === 'file' || curTab === 'link') ? epCur() : '', all = epAll(), k = all.indexOf(c);
+  $('#epNow').innerHTML = !c ? '' : `<button type="button" class="b g" data-step="-1" ${k > 0 ? '' : 'disabled'} title="Предыдущая серия">‹</button>
+    <span class="ep-t"><b>${e(epLabel(c))}</b>${epUrl(c) ? '<small>🔗 ссылка сохранена</small>' : ''}${epFile[c] ? `<small>📁 ${e(epFile[c].name)}</small>` : ''}</span>
+    <button type="button" class="b ${epEnded ? '' : 'g'}" data-step="1" ${k < all.length - 1 ? '' : 'disabled'} title="Следующая серия">${epEnded ? 'Следующая серия ›' : '›'}</button>`;
+}
+// выбрать серию: открыть её сезон в списке и показать плеер (если у серии есть ссылка — сразу она)
+function goEp(c) { curEp = c; epEnded = false; epSeason = epNum(c)[0]; eps(); tab(epUrl(c) || curTab === 'link' ? 'link' : 'file'); }
+$('#epNow').onclick = ev => { const b = ev.target.closest('button'); if (!b || b.disabled) return; const all = epAll(), n = all[all.indexOf(epCur()) + (+b.dataset.step)]; if (n) goEp(n); };
+function ensureItem() { // сериала ещё нет в библиотеке — первая отметка или правка серий добавляет его
+  if (!item && info) { item = KP.add(info).item || KP.find(KP.load(), info.title, info.year) || null; if (item) mine(); }
+  return item;
+}
+function setWatched(w) {
+  if (!ensureItem()) return;
+  KP.update(item.id, KP.epSync(item, w)); item = KP.load().find(x => x.id === item.id) || item; controls();
+}
+// добавить серии в открытый сезон / убрать последнюю / удалить сезон / добавить новый сезон
+function editEps(kind) {
+  if (!ensureItem()) return;
+  const s = (item.seasons || []).find(x => x.n === epSeason), w = item.w || [];
+  if (kind !== 'adds' && !s) return;
+  if (kind === 'add') KP.addEps(item.id, s.n, $('#edN').value);
+  if (kind === 'del') {
+    if (s.c === 1 && !confirm(`В сезоне ${s.n} останется 0 серий, сезон будет удалён. Продолжить?`)) return;
+    if (s.c > 1 && w.includes(KP.epCode(s.n, s.c)) && !confirm(`Серия ${s.c} отмечена как просмотренная. Убрать её?`)) return;
+    KP.delLastEp(item.id, s.n);
+  }
+  if (kind === 'dels') {
+    const seen = KP.epCodes(s).filter(c => w.includes(c)).length;
+    if (!confirm(`Удалить сезон ${s.n} (${s.c} сер.)${seen ? ` вместе с ${seen} отметками просмотра` : ''}?`)) return;
+    KP.delSeason(item.id, s.n);
+  }
+  if (kind === 'adds') {
+    const n = +$('#edS').value; if (!(n >= 1)) { $('#edS').focus(); return; }
+    KP.addSeason(item.id, n); const S2 = KP.load().find(x => x.id === item.id).seasons; epSeason = S2[S2.length - 1].n; // открываем новый сезон
+  }
+  edOpen = true; item = KP.load().find(x => x.id === item.id) || item; controls();
+  if (isTv() && curEp && !epAll().includes(curEp)) { curEp = ''; tab(curTab); } // серию, которая сейчас в плеере, удалили
+}
+function eps() {
+  if (type !== 'tv' || (!item && !info)) { box.innerHTML = ''; return; }
+  const S = (item && item.seasons && item.seasons.length ? item.seasons : info && info.seasons) || [];
+  const w = (item && item.w) || [], codes = x => KP.epCodes(x);
+  if (!S.some(s => s.n === epSeason)) epSeason = (S.find(s => codes(s).some(c => !w.includes(c))) || S[0] || {}).n || 0; // открываем сезон, где остановились
+  const s = S.find(x => x.n === epSeason), tot = KP.epTotal({ seasons: S }), seen = w.length;
+  const ed = `<details class="eps-ed-box" ${edOpen || !s ? 'open' : ''}><summary>Добавить или убрать серии</summary>
+    ${s ? `<div class="eps-ed"><span>Сезон ${s.n}:</span><input type="number" id="edN" min="1" max="999" value="1" aria-label="Сколько серий добавить"><button type="button" class="b g" data-ed="add">+ серии</button><button type="button" class="b g" data-ed="del">− последняя</button><button type="button" class="b g" data-ed="dels">Удалить сезон</button></div>` : '<p class="rv-none">Сезонов пока нет. Укажите, сколько серий в первом сезоне.</p>'}
+    <div class="eps-ed"><span>${s ? 'Новый сезон:' : 'Первый сезон:'}</span><input type="number" id="edS" min="1" max="999" placeholder="серий" aria-label="Сколько серий в новом сезоне"><button type="button" class="b g" data-ed="adds">+ Сезон</button></div></details>`;
+  if (!s) { box.innerHTML = `<div class="eps-h"><h2>Сезоны и серии</h2></div>${ed}`; return; }
+  const draw = names => {
+    const keep = box.dataset.s == s.n ? (box.querySelector('.eps-list') || {}).scrollTop || 0 : 0; box.dataset.s = s.n; // прокрутка списка не сбрасывается при отметке серии
+    box.innerHTML = `<div class="eps-h"><h2>Сезоны и серии</h2><span class="sum">Просмотрено ${seen} из ${tot}${item && item.progress ? ' · ' + e(item.progress) : ''}${epNote ? ' · ' + e(epNote) : ''}</span><button class="b" data-next>Отметить следующую серию</button></div>
+      <div class="eps-bar"><i style="width:${tot ? Math.min(100, seen / tot * 100) : 0}%"></i></div>
+      <div class="chips">${S.map(x => `<button type="button" class="chip ${x.n === s.n ? 'on' : ''}" data-s="${x.n}">Сезон ${x.n} (${codes(x).filter(c => w.includes(c)).length}/${x.c})</button>`).join('')}
+        <button type="button" class="chip" data-all>${codes(s).every(c => w.includes(c)) ? 'Снять отметки сезона' : 'Отметить весь сезон'}</button></div>
+      <ul class="eps-list">${codes(s).map((c, k) => { const ep = names && names[k] || {}, on = w.includes(c);
+        return `<li class="${on ? 'seen' : ''}${c === curEp ? ' cur' : ''}"><label><input type="checkbox" data-c="${c}" ${on ? 'checked' : ''}><b>${k + 1}</b><span>${e(ep.name || 'Серия ' + (k + 1))}<small>${[ep.air_date, ep.runtime ? ep.runtime + ' мин' : ''].filter(Boolean).map(e).join(' · ')}</small></span>${epUrl(c) ? '<i class="lkm" title="Есть сохранённая ссылка">🔗</i>' : ''}</label><button type="button" class="b g ep-play" data-play="${c}" title="Смотреть серию" aria-label="Смотреть серию ${k + 1}">▶</button></li>`; }).join('')}</ul>${ed}`;
+    const ul = box.querySelector('.eps-list'); if (ul) ul.scrollTop = keep;
+  };
+  draw(epCache[s.n]);
+  if (tm && !epCache[s.n]) KP.tmdb(`/tv/${tm}/season/${s.n}`).then(d => { epCache[s.n] = d.episodes || []; if (epSeason === s.n && !box.contains(document.activeElement)) draw(epCache[s.n]); bar(); }).catch(() => {}); // без названий список всё равно работает
+}
+box.addEventListener('toggle', ev => { if (ev.target.classList.contains('eps-ed-box')) edOpen = ev.target.open; }, true); // toggle не всплывает: ловим на погружении
+box.onchange = ev => {
+  const c = ev.target.dataset.c; if (!c) return;
+  const cur = new Set((item && item.w) || []); ev.target.checked ? cur.add(c) : cur.delete(c); setWatched([...cur]);
+};
+box.onclick = ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.play) { goEp(b.dataset.play); return $('#player').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  if (b.dataset.ed) return editEps(b.dataset.ed);
+  const S = (item && item.seasons && item.seasons.length ? item.seasons : info && info.seasons) || [], w = (item && item.w) || [], codes = x => KP.epCodes(x);
+  if (b.dataset.s) { epSeason = +b.dataset.s; return eps(); }
+  if (b.hasAttribute('data-all')) { const s = S.find(x => x.n === epSeason), cs = codes(s); return setWatched(cs.every(c => w.includes(c)) ? w.filter(c => !cs.includes(c)) : [...new Set([...w, ...cs])]); }
+  if (b.hasAttribute('data-next')) {
+    for (const s of S) { const c = codes(s).find(c => !w.includes(c)); if (c) { epSeason = s.n; return setWatched([...w, c]); } }
+    alert('Все серии уже отмечены');
+  }
+};
 // вкладки плеера
 document.querySelector('.tabs').onclick = ev => { const t = ev.target.dataset.tab; if (t) tab(t); };
 function tab(t) {
+  curTab = t;
   document.querySelectorAll('.tabs .b').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   $('#own').innerHTML = ''; const pl = $('#player'); pl.style.overflow = '';
+  const c = isTv() && (t === 'file' || t === 'link') ? epCur() : ''; // у сериала файл и ссылка относятся к серии, у фильма — ко всему фильму
+  if (c) curEp = c;
+  bar();
   if (t === 'trailer') trailer(pl);
   if (t === 'full') full(pl);
+  if (isTv() && (t === 'file' || t === 'link') && !c) { pl.innerHTML = '<div class="empty">В сериале пока нет серий. Добавьте их в блоке «Добавить или убрать серии» выше.</div>'; return; }
   if (t === 'file') {
-    pl.innerHTML = '<div class="empty">Выберите видеофайл (MP4, WebM, MOV; MKV и AVI зависят от браузера). Файл не загружается на сервер.</div>';
     $('#own').innerHTML = '<input type="file" id="vf" accept="video/*,.mkv,.avi">';
-    $('#vf').onchange = ev => { const f = ev.target.files[0]; if (f) video(URL.createObjectURL(f), 'f:' + f.name + f.size); };
+    $('#vf').onchange = ev => {
+      const f = ev.target.files[0]; if (!f) return; const key = 'f:' + f.name + f.size, u = URL.createObjectURL(f);
+      if (c) { epFile[c] = { url: u, key, name: f.name }; bar(); }
+      video(u, key, c);
+    };
+    if (c && epFile[c]) video(epFile[c].url, epFile[c].key, c); // файл этой серии уже выбирали на этой странице
+    else pl.innerHTML = `<div class="empty">Выберите видеофайл${c ? ' этой серии' : ''} (MP4, WebM, MOV; MKV и AVI зависят от браузера). Файл не загружается на сервер.</div>`;
   }
   if (t === 'link') {
-    pl.innerHTML = '<div class="empty">Вставьте прямую ссылку на видео (.mp4, .webm) или адрес встраиваемого плеера вашего сервиса.</div>';
-    $('#own').innerHTML = `<input id="lu" placeholder="https://…" value="${e(item && item.source === 'stream' ? item.url : '')}"><button class="b" id="lb">Открыть</button>`;
+    const saved = c ? epUrl(c) : item && item.source === 'stream' ? item.url : '';
+    pl.innerHTML = `<div class="empty">Вставьте прямую ссылку на видео (.mp4, .webm) или адрес встраиваемого плеера вашего сервиса${c ? '. Ссылка сохранится для этой серии' : ''}.</div>`;
+    $('#own').innerHTML = `<input id="lu" placeholder="https://…" value="${e(saved)}"><button class="b" id="lb">Открыть</button>${c && saved ? '<button class="b g" id="lx">Убрать ссылку</button>' : ''}`;
     $('#lb').onclick = () => {
       const u = $('#lu').value.trim(); if (!/^https:\/\//.test(u)) { alert('Нужна ссылка, начинающаяся с https://'); return; }
-      if (item) KP.update(item.id, { url: u });
-      /\.(mp4|webm|ogg)(\?|$)/i.test(u) ? video(u, 'u:' + u) : pl.innerHTML = `<iframe src="${e(u)}" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>`;
+      if (c) {
+        if (u !== epUrl(c)) { // сериала может ещё не быть в библиотеке: как и отметка серии, ссылка добавляет его; дату изменения не трогаем (ссылка — не просмотр)
+          const had = !!item;
+          if (ensureItem()) {
+            KP.update(item.id, { eu: { ...(item.eu || {}), [c]: u } }, true); item = KP.load().find(x => x.id === item.id) || item; if (!had) controls(); else eps(); bar();
+            if (!$('#lx')) { $('#own').insertAdjacentHTML('beforeend', '<button class="b g" id="lx">Убрать ссылку</button>'); dropLink(); }
+          }
+        }
+      } else if (item) KP.update(item.id, { url: u });
+      /\.(mp4|webm|ogg)(\?|$)/i.test(u) ? video(u, 'u:' + u, c) : pl.innerHTML = `<iframe src="${e(u)}" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>`;
     };
+    const dropLink = () => { if ($('#lx')) $('#lx').onclick = () => { const eu = { ...(item.eu || {}) }; delete eu[c]; KP.update(item.id, { eu }, true); item = KP.load().find(x => x.id === item.id) || item; eps(); tab('link'); }; };
+    dropLink();
     if ($('#lu').value) $('#lb').click();
   }
 }
@@ -171,7 +296,7 @@ async function trailer(pl) {
   } catch (err) { pl.innerHTML = '<div class="empty">Не удалось загрузить трейлер. Проверьте интернет.</div>'; }
 }
 // HTML5-плеер: запоминает позицию и ставит статус «В процессе» / «Просмотрено»
-function video(src, key) {
+function video(src, key, ep = '') {
   const pl = $('#player'); pl.innerHTML = '<video controls autoplay playsinline></video>';
   const v = pl.firstChild, k = 'kp_pos_' + key; v.src = src;
   v.onerror = () => pl.innerHTML = '<div class="empty">Браузер не смог воспроизвести этот формат. Попробуйте MP4 (H.264) или WebM.</div>';
@@ -181,7 +306,11 @@ function video(src, key) {
     if (Date.now() - last < 3000) return; last = Date.now(); localStorage.setItem(k, v.currentTime);
     if (item && item.status === 'plan') { KP.update(item.id, { status: 'progress' }); item.status = 'progress'; controls(); }
   };
-  v.onended = () => { localStorage.removeItem(k); if (item) { KP.update(item.id, { status: 'done' }); item.status = 'done'; controls(); } };
+  v.onended = () => {
+    localStorage.removeItem(k);
+    if (ep) { epEnded = true; setWatched([...new Set([...((item && item.w) || []), ep])]); bar(); return; } // серия досмотрена: отметка, статус и прогресс пересчитываются сами
+    if (item) { KP.update(item.id, { status: 'done' }); item.status = 'done'; controls(); }
+  };
 }
 init();
 </script>

@@ -11,6 +11,8 @@
   <nav><ul>
     <li><a href="index.html">Главная</a></li>
     <li class="active"><a href="library.html">Библиотека</a></li>
+    <li><a href="movies.html">Фильмы</a></li>
+    <li><a href="series.html">Сериалы</a></li>
     <li><a href="community.html">Подборки</a></li>
     <li><a href="spaces.html">Каталоги</a></li>
     <li><a href="profile.html" id="me">Вход</a></li>
@@ -57,7 +59,7 @@
 <dialog id="dEp">
   <h3 id="epn">Серии</h3>
   <div id="epb" style="max-height:55vh;overflow:auto"></div>
-  <div class="tools"><input id="newc" type="number" min="1" placeholder="Серий в новом сезоне" style="width:190px"><button class="b g" id="adds">+ Сезон</button></div>
+  <div class="tools"><input id="newc" type="number" min="1" max="999" placeholder="Серий в новом сезоне" style="width:230px"><button class="b g" id="adds">+ Сезон</button></div>
   <div style="display:flex;gap:8px"><button class="b" id="nextEp">Отметить следующую серию</button><button class="b g" onclick="dEp.close()">Закрыть</button></div>
 </dialog>
 
@@ -117,7 +119,7 @@
   </div>
   <div id="tvbox" hidden>
     <label id="snl">Сезоны: сколько серий в каждом<input name="seasons" placeholder="10, 8, 12" autocomplete="off"></label>
-    <span class="hint" id="snh">Сезоны и серии отмечаются кнопкой «Серии» на карточке.</span>
+    <span class="hint" id="snh">Серии и сезоны добавляются и отмечаются кнопкой «Серии» на карточке.</span>
   </div>
 
   <label>Теги (через запятую)<input name="tags" placeholder="Для вечера с семьёй, Хоррор на Хеллоуин"></label>
@@ -419,28 +421,42 @@ function flash(id) {
 }
 // сериалы: сезоны и серии (из TMDB или добавленные вручную), прогресс S1E5, статус выставляется сам
 let epId = null;
-const code = (s, k) => 'S' + s + 'E' + k, epTotal = it => (it.seasons || []).reduce((s, x) => s + x.c, 0);
-function epSync(it, w) {
-  const num = c => c.match(/\d+/g).map(Number), tot = epTotal(it);
-  if (!w.length) return { w, progress: '', status: 'plan' };
-  const last = w.slice().sort((a, b) => num(a)[0] - num(b)[0] || num(a)[1] - num(b)[1]).pop();
-  return { w, progress: last, status: tot && w.length >= tot ? 'done' : 'progress' };
-}
+// логика серий (коды S1E5, прогресс, статус, добавление и удаление серий) — в app.js, общая с карточкой сериала
+const code = (s, k) => KP.epCode(s, k), epTotal = it => KP.epTotal(it), epSync = (it, w) => KP.epSync(it, w);
+let epKeep = null; // сезон, который остаётся раскрытым после добавления или удаления серий
 function openEp(id) {
   epId = id; const it = KP.load().find(x => x.id === id), w = it.w || [], S = it.seasons || [];
-  $('#epn').textContent = it.title + (it.progress ? ' — ' + it.progress : '');
-  const cur = S.find(s => Array.from({ length: s.c }, (_, k) => code(s.n, k + 1)).some(c => !w.includes(c)));
+  $('#epn').textContent = it.title + (it.progress ? ' — ' + it.progress : '') + (S.length ? ` · ${w.length} из ${epTotal(it)}` : '');
+  const cur = S.find(s => s.n === epKeep) || S.find(s => KP.epCodes(s).some(c => !w.includes(c)));
   $('#epb').innerHTML = S.map(s => {
-    const cs = Array.from({ length: s.c }, (_, k) => code(s.n, k + 1)), n = cs.filter(c => w.includes(c)).length;
-    return `<details ${cur === s ? 'open' : ''}><summary>Сезон ${s.n} (${n}/${s.c})</summary><div class="eps"><label><input type="checkbox" data-s="${s.n}" ${n === s.c ? 'checked' : ''}> все</label>${cs.map((c, k) => `<label><input type="checkbox" data-c="${c}" ${w.includes(c) ? 'checked' : ''}>${k + 1}</label>`).join('')}</div></details>`;
-  }).join('') || '<p>Сезонов нет. Добавьте сезон ниже (число серий).</p>';
+    const cs = KP.epCodes(s), n = cs.filter(c => w.includes(c)).length;
+    return `<details ${cur === s ? 'open' : ''}><summary>Сезон ${s.n} (${n}/${s.c})</summary><div class="eps"><label><input type="checkbox" data-s="${s.n}" ${n === s.c ? 'checked' : ''}> все</label>${cs.map((c, k) => `<label><input type="checkbox" data-c="${c}" ${w.includes(c) ? 'checked' : ''}>${k + 1}</label>`).join('')}</div>
+      <div class="eps-ed"><input type="number" min="1" max="999" value="1" data-cnt aria-label="Сколько серий добавить в сезон ${s.n}"><button type="button" class="b g" data-e="add" data-n="${s.n}">+ серии</button><button type="button" class="b g" data-e="del" data-n="${s.n}">− последняя</button><button type="button" class="b g" data-e="dels" data-n="${s.n}">Удалить сезон</button></div></details>`;
+  }).join('') || '<p>Сезонов пока нет. Укажите ниже, сколько серий в первом сезоне, и нажмите «+ Сезон».</p>';
   if (!dEp.open) dEp.showModal();
 }
 $('#epb').onchange = ev => {
-  const it = KP.load().find(x => x.id === epId), t = ev.target;
+  const it = KP.load().find(x => x.id === epId), t = ev.target; if (!t.dataset.c && !t.dataset.s) return; // поле «сколько серий» отметок не меняет
   if (t.dataset.s) document.querySelectorAll(`#epb [data-c^="S${t.dataset.s}E"]`).forEach(c => c.checked = t.checked);
-  KP.update(epId, epSync(it, [...document.querySelectorAll('#epb [data-c]:checked')].map(c => c.dataset.c)));
+  epKeep = null; KP.update(epId, epSync(it, [...document.querySelectorAll('#epb [data-c]:checked')].map(c => c.dataset.c)));
   openEp(epId); render();
+};
+// добавить серии в сезон, убрать последнюю серию, удалить сезон (отметки просмотра подчищаются, прогресс и статус пересчитываются)
+$('#epb').onclick = ev => {
+  const b = ev.target.closest('[data-e]'); if (!b) return;
+  const n = +b.dataset.n, it = KP.load().find(x => x.id === epId), s = (it.seasons || []).find(x => x.n === n), w = it.w || []; if (!s) return;
+  if (b.dataset.e === 'add') KP.addEps(epId, n, b.parentNode.querySelector('[data-cnt]').value);
+  if (b.dataset.e === 'del') {
+    if (s.c === 1 && !confirm(`В сезоне ${n} останется 0 серий, сезон будет удалён. Продолжить?`)) return;
+    if (s.c > 1 && w.includes(code(n, s.c)) && !confirm(`Серия ${s.c} отмечена как просмотренная. Убрать её?`)) return;
+    KP.delLastEp(epId, n);
+  }
+  if (b.dataset.e === 'dels') {
+    const seen = KP.epCodes(s).filter(c => w.includes(c)).length;
+    if (!confirm(`Удалить сезон ${n} (${s.c} сер.)${seen ? ` вместе с ${seen} отметками просмотра` : ''}?`)) return;
+    KP.delSeason(epId, n);
+  }
+  epKeep = n; openEp(epId); render();
 };
 $('#nextEp').onclick = () => {
   const it = KP.load().find(x => x.id === epId), w = it.w || [];
@@ -448,10 +464,12 @@ $('#nextEp').onclick = () => {
   alert('Все серии уже отмечены');
 };
 $('#adds').onclick = () => {
-  const n = +$('#newc').value; if (!n) return;
-  const s = KP.load().find(x => x.id === epId).seasons || [];
-  KP.update(epId, { seasons: [...s, { n: s.length ? s[s.length - 1].n + 1 : 1, c: n }] }); $('#newc').value = ''; openEp(epId); render();
+  const n = +$('#newc').value; if (!(n >= 1)) { $('#newc').focus(); return; }
+  if (!KP.addSeason(epId, n)) return;
+  const S = KP.load().find(x => x.id === epId).seasons; epKeep = S[S.length - 1].n; // раскрываем новый сезон
+  $('#newc').value = ''; openEp(epId); render();
 };
+$('#newc').onkeydown = ev => { if (ev.key === 'Enter') $('#adds').click(); };
 // режим: личная коллекция (эта страница) / корпоративный архив / публичный каталог (общие каталоги на странице «Каталоги»)
 $('#mode').value = 'personal';
 $('#mode').onchange = () => { if ($('#mode').value !== 'personal') location.href = 'spaces.html?kind=' + $('#mode').value; };

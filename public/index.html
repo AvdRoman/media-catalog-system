@@ -48,6 +48,12 @@ body.home .search-results{top:52px; border:1px solid var(--line); border-radius:
 .h-stack:hover .poster:nth-child(1){transform:rotate(-12deg) translateX(-14px)}
 .h-stack:hover .poster:nth-child(3){transform:rotate(13deg) translateX(14px)}
 
+body.home .search-item a{min-width:0}
+.s-add{flex:none; width:34px; height:34px; border-radius:50%; border:1px solid var(--line); background:var(--red); color:#fff; font-size:18px; line-height:1; cursor:pointer; transition:.2s}
+.s-add:hover:not(:disabled){transform:scale(1.1)}
+.s-add:disabled{background:rgba(255,255,255,.12); cursor:default}
+.h-more{font-size:15px; font-weight:500; margin-left:16px; color:#ff8a80}
+
 /* ---------- ПОПУЛЯРНЫЕ ---------- */
 body.home .trending{padding-top:50px}
 body.home .section-title{font-size:30px; font-weight:700}
@@ -125,6 +131,8 @@ body.home .close-btn:hover{color:#fff}
                 <ul>
                     <li class="active"><a href="index.html">Главная</a></li>
                     <li><a href="library.html">Библиотека</a></li>
+    <li><a href="movies.html">Фильмы</a></li>
+    <li><a href="series.html">Сериалы</a></li>
                     <li><a href="community.html">Подборки</a></li>
                     <li><a href="spaces.html">Каталоги</a></li>
                     <li><a href="profile.html" id="me">Вход</a></li>
@@ -133,7 +141,7 @@ body.home .close-btn:hover{color:#fff}
             </nav>
             <div class="search-container">
                 <div class="search-box">
-                    <input type="text" id="search-input" placeholder="Найти фильм..." autocomplete="off">
+                    <input type="text" id="search-input" placeholder="Найти фильм или сериал..." autocomplete="off">
                 </div>
                 <div class="search-results" id="search-results"></div>
             </div>
@@ -153,8 +161,13 @@ body.home .close-btn:hover{color:#fff}
         </section>
 
         <section class="container trending" id="trending">
-            <h3 class="section-title">Сейчас популярные</h3>
+            <h3 class="section-title">Популярные фильмы <a class="h-more" href="movies.html">Все фильмы →</a></h3>
             <div class="movies" id="movies-grid"></div>
+        </section>
+
+        <section class="container trending" id="trending-tv">
+            <h3 class="section-title">Популярные сериалы <a class="h-more" href="series.html">Все сериалы →</a></h3>
+            <div class="movies" id="tv-grid"></div>
         </section>
 
         <section class="container big-text">
@@ -180,7 +193,7 @@ body.home .close-btn:hover{color:#fff}
 
         <footer class="container h-foot">
             <span>© 2026 Kinoproba · «Хайтек.Юниоры»</span>
-            <span><a href="library.html">Библиотека</a> · <a href="community.html">Подборки</a> · <a href="profile.html">Профиль</a></span>
+            <span><a href="movies.html">Фильмы</a> · <a href="series.html">Сериалы</a> · <a href="library.html">Библиотека</a> · <a href="community.html">Подборки</a> · <a href="profile.html">Профиль</a></span>
         </footer>
     </div>
 
@@ -219,67 +232,81 @@ body.home .close-btn:hover{color:#fff}
                 `<a class="poster" href="movie.html?id=${m.id}"><img src="${homePoster(m)}" alt="${homeEsc(m.title)}"></a>`).join('');
         }
 
-        function displayMovies(movies) {
-            if (!moviesGrid) return;
-            moviesGrid.innerHTML = '';
+        // grid — куда выводить; tv — сериалы (у них поле name вместо title и ссылка с &t=tv)
+        function displayMovies(movies, grid = moviesGrid, tv = false) {
+            if (!grid) return;
+            grid.innerHTML = '';
             movies.forEach(movie => {
                 const movieBlock = document.createElement('div');
                 movieBlock.className = 'block';
-                const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '–';
+                const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '–', title = movie.title || movie.name;
                 movieBlock.innerHTML = `
                     <span class="rate"><i>★</i> ${rating}</span>
-                    <a href="movie.html?id=${movie.id}">
-                        <img src="${homePoster(movie)}" alt="${homeEsc(movie.title)}" loading="lazy">
-                        <span>${homeEsc(movie.title)}</span>
+                    <a href="movie.html?id=${movie.id}${tv ? '&t=tv' : ''}">
+                        <img src="${homePoster(movie)}" alt="${homeEsc(title)}" loading="lazy">
+                        <span>${homeEsc(title)}</span>
                     </a>
                 `;
-                moviesGrid.appendChild(movieBlock);
+                grid.appendChild(movieBlock);
             });
         }
 
+        async function getPopularSeries() {
+            const grid = document.getElementById('tv-grid');
+            try {
+                const res = await fetch(`${BASE_URL}/tv/popular?api_key=${TMDB_API_KEY}&language=ru-RU&page=1`);
+                const data = await res.json();
+                if (!data.results) throw new Error(data.status_message || 'TMDB не вернул results');
+                displayMovies(data.results.slice(0, 10), grid, true);
+            } catch (error) {
+                console.error("Ошибка загрузки популярных сериалов:", error);
+                if (grid) grid.innerHTML = '<p style="color:#cbb8b8">Не удалось загрузить сериалы: ' + homeEsc(error.message) + '</p>';
+            }
+        }
+
         getPopularMovies();
+        getPopularSeries();
 
-        // Поиск по каталогу
+        // Поиск по фильмам и сериалам; кнопка «+» добавляет найденное в библиотеку (у сериала — со всеми сезонами и сериями)
+        function searchRow(m) {
+            const tv = m.media_type === 'tv', title = m.title || m.name, date = m.release_date || m.first_air_date || '';
+            const have = KP.inLib(m.id, tv ? 'tv' : 'movie');
+            return `<div class="search-item">
+                <a href="movie.html?id=${m.id}${tv ? '&t=tv' : ''}" style="display:flex;align-items:center;gap:15px;flex:1;color:inherit">
+                    <img src="${m.poster_path ? IMG_URL + m.poster_path : 'https://via.placeholder.com/50x70?text=No'}" alt="">
+                    <div><h4>${homeEsc(title)}</h4><p>${date.slice(0, 4) || '----'} · ${tv ? 'Сериал' : 'Фильм'}</p></div>
+                </a>
+                <button type="button" class="s-add" data-id="${m.id}" data-t="${tv ? 'tv' : 'movie'}" title="Добавить в библиотеку" ${have ? 'disabled' : ''}>${have ? '✓' : '+'}</button>
+            </div>`;
+        }
         if (searchInput) {
-            searchInput.addEventListener('input', async function() {
-                const query = this.value.trim();
-                searchResults.innerHTML = '';
-
-                if (query.length < 2) {
-                    searchResults.style.display = 'none';
-                    return;
-                }
-
-                try {
-                    const res = await fetch(`${BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&language=ru-RU&query=${encodeURIComponent(query)}`);
-                    const data = await res.json();
-
-                    if (data.results && data.results.length > 0) {
-                        data.results.slice(0, 6).forEach(movie => {
-                            const item = document.createElement('a');
-                            item.href = `movie.html?id=${movie.id}`;
-                            item.className = 'search-item';
-
-                            const posterPath = movie.poster_path ? IMG_URL + movie.poster_path : 'https://via.placeholder.com/50x70?text=No';
-                            const year = movie.release_date ? movie.release_date.substring(0, 4) : '----';
-
-                            item.innerHTML = `
-                                <img src="${posterPath}" alt="">
-                                <div>
-                                    <h4>${homeEsc(movie.title)}</h4>
-                                    <p>${year}</p>
-                                </div>
-                            `;
-                            searchResults.appendChild(item);
-                        });
+            let searchTimer, searchToken = 0; // токен отбрасывает ответы устаревших запросов
+            searchInput.addEventListener('input', function() {
+                clearTimeout(searchTimer);
+                const query = this.value.trim(), my = ++searchToken;
+                if (query.length < 2) { searchResults.innerHTML = ''; searchResults.style.display = 'none'; return; }
+                searchTimer = setTimeout(async () => {
+                    try {
+                        const res = await fetch(`${BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&language=ru-RU&query=${encodeURIComponent(query)}`);
+                        const data = await res.json();
+                        if (my !== searchToken) return;
+                        const found = (data.results || []).filter(m => m.media_type === 'movie' || m.media_type === 'tv').slice(0, 8);
+                        searchResults.innerHTML = found.length ? found.map(searchRow).join('') : '<div class="no-results">Ничего не найдено</div>';
                         searchResults.style.display = 'block';
-                    } else {
-                        searchResults.innerHTML = '<div class="no-results">Ничего не найдено</div>';
-                        searchResults.style.display = 'block';
+                    } catch (error) {
+                        console.error("Ошибка поиска:", error);
                     }
-                } catch (error) {
-                    console.error("Ошибка поиска:", error);
-                }
+                }, 300);
+            });
+
+            searchResults.addEventListener('click', async ev => {
+                const b = ev.target.closest('.s-add'); if (!b || b.disabled) return;
+                b.disabled = true; b.textContent = '…';
+                try {
+                    const r = KP.add(await KP.fromTmdbPlus(b.dataset.id, b.dataset.t));
+                    if (r.fail) throw new Error('в браузере не хватает места');
+                    b.textContent = '✓'; b.title = 'Уже в библиотеке';
+                } catch (error) { b.disabled = false; b.textContent = '+'; alert('Не удалось добавить: ' + error.message); }
             });
 
             document.addEventListener('click', (e) => {

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Фильмы - Kinoproba</title>
+<link rel="stylesheet" href="css/main.css"><link rel="stylesheet" href="css/library.css">
+</head>
+<body><div class="wrapper">
+<header class="container">
+  <a href="index.html" class="logo">KINOPROBA</a>
+  <nav><ul>
+    <li><a href="index.html">Главная</a></li>
+    <li><a href="library.html">Библиотека</a></li>
+    <li class="active"><a href="movies.html">Фильмы</a></li>
+    <li><a href="series.html">Сериалы</a></li>
+    <li><a href="community.html">Подборки</a></li>
+    <li><a href="spaces.html">Каталоги</a></li>
+    <li><a href="profile.html" id="me">Вход</a></li>
+    <li class="btn"><a href="contacts.html">Контакты</a></li>
+  </ul></nav>
+  <div class="header-extra"></div>
+</header>
+
+<main class="container">
+  <h1>Фильмы</h1>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Найти фильм по названию…" autocomplete="off">
+  </div>
+  <div class="tabs" id="lists" style="margin-top:0">
+    <button class="b on" data-l="popular">Популярные</button>
+    <button class="b" data-l="top_rated">Лучшие по рейтингу</button>
+    <button class="b" data-l="now_playing">Сейчас в кино</button>
+  </div>
+  <h2 id="ttl" style="margin:10px 0 0">Популярные фильмы</h2>
+  <div class="grid" id="grid"></div>
+  <div style="text-align:center;margin-bottom:40px"><button class="b g" id="more" hidden>Показать ещё</button></div>
+</main></div>
+
+<script src="js/app.js"></script>
+<script>
+const $ = s => document.querySelector(s), e = KP.esc;
+KP.nav(); KP.pull();
+let list = 'popular', page = 1, query = '', timer, token = 0; // token отбрасывает ответы устаревших запросов
+
+function card(x) {
+  const have = KP.inLib(x.id, 'movie'), year = (x.release_date || '').slice(0, 4);
+  return `<div class="card" data-id="${x.id}">
+    <a class="p" href="movie.html?id=${x.id}" style="${x.poster_path ? `background-image:url('${KP.img + x.poster_path}')` : ''}">${x.poster_path ? '' : '▶'}</a>
+    <div class="t"><h4>${e(x.title)}</h4>
+      <small>${year || '----'} · Фильм${x.vote_average ? ' · ★ ' + x.vote_average.toFixed(1) : ''}</small>
+      <div class="acts"><a class="b g" href="movie.html?id=${x.id}">▶ Смотреть</a>
+        <button class="b" data-add="${x.id}" ${have ? 'disabled' : ''}>${have ? '✓ В библиотеке' : '+ В библиотеку'}</button></div>
+    </div></div>`;
+}
+
+async function load(append) {
+  const my = ++token, g = $('#grid');
+  if (!append) { page = 1; g.innerHTML = '<p>Загрузка…</p>'; $('#more').hidden = true; }
+  try {
+    const d = query ? await KP.tmdb('/search/movie', '&page=' + page + '&query=' + encodeURIComponent(query)) : await KP.tmdb('/movie/' + list, '&page=' + page);
+    if (my !== token) return;
+    const html = d.results.map(card).join('');
+    g.innerHTML = append ? g.innerHTML + html : (html || '<p>Ничего не найдено.</p>');
+    $('#more').hidden = page >= d.total_pages;
+  } catch (err) { if (my === token) g.innerHTML = `<p>Не удалось загрузить фильмы (${e(err.message)}). Причину покажет <a href="check.html" style="color:#ffb3b3">страница диагностики</a>.</p>`; }
+}
+
+$('#q').oninput = () => { clearTimeout(timer); timer = setTimeout(() => { query = $('#q').value.trim(); if (query.length === 1) return; title(); load(); }, 350); };
+$('#lists').onclick = ev => {
+  const l = ev.target.dataset.l; if (!l) return;
+  list = l; query = ''; $('#q').value = '';
+  document.querySelectorAll('#lists .b').forEach(b => b.classList.toggle('on', b.dataset.l === l)); title(); load();
+};
+function title() { $('#ttl').textContent = query ? 'Результаты поиска: «' + query + '»' : { popular: 'Популярные фильмы', top_rated: 'Лучшие фильмы по рейтингу', now_playing: 'Сейчас в кино' }[list]; }
+$('#more').onclick = () => { page++; load(true); };
+
+// добавить фильм в библиотеку прямо из списка
+$('#grid').onclick = async ev => {
+  const b = ev.target.closest('[data-add]'); if (!b || b.disabled) return;
+  b.disabled = true; b.textContent = 'Добавляю…';
+  try {
+    const r = KP.add(await KP.fromTmdbPlus(b.dataset.add, 'movie'));
+    if (r.fail) throw new Error('в браузере не хватает места');
+    b.textContent = '✓ В библиотеке';
+  } catch (err) { b.disabled = false; b.textContent = '+ В библиотеку'; alert('Не удалось добавить: ' + err.message); }
+};
+window.addEventListener('pageshow', () => document.querySelectorAll('[data-add]').forEach(b => { if (KP.inLib(b.dataset.add, 'movie')) { b.disabled = true; b.textContent = '✓ В библиотеке'; } }));
+load();
+</script>
+</body></html>
