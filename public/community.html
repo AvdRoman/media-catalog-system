@@ -12,39 +12,156 @@
     <li><a href="index.html">Главная</a></li>
     <li><a href="library.html">Библиотека</a></li>
     <li class="active"><a href="community.html">Подборки</a></li>
+    <li><a href="spaces.html">Каталоги</a></li>
     <li><a href="profile.html" id="me">Вход</a></li>
     <li class="btn"><a href="contacts.html">Контакты</a></li>
   </ul></nav>
   <div class="header-extra"></div>
 </header>
 <main class="container">
-  <h1>Подборки пользователей</h1>
-  <div class="tools"><input type="search" id="q" placeholder="Название подборки, автор или фильм внутри…"></div>
-  <div class="grid" id="list" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
-  <div id="view"></div>
+  <h1>Подборки</h1>
+  <div class="tabs" id="tabs"><button type="button" class="b on" data-tab="mine">Мои подборки</button><button type="button" class="b g" data-tab="pub">Открытые подборки</button></div>
+
+  <!-- МОИ ПОДБОРКИ: создание, состав, видимость -->
+  <section id="pMine">
+    <div id="mlogin" hidden><p>Подборки привязаны к аккаунту. <a href="profile.html" style="color:#ffb3b3">Войдите или зарегистрируйтесь</a>, чтобы создавать свои.</p></div>
+    <div id="mwork" hidden>
+      <div class="card cform" id="mcreate">
+        <h3>Новая подборка</h3>
+        <input type="text" id="mn" maxlength="60" placeholder="Название, например: На зимний вечер" autocomplete="off">
+        <input type="text" id="md" maxlength="200" placeholder="Описание (необязательно)" autocomplete="off">
+        <div class="seg" role="radiogroup" aria-label="Кто видит подборку">
+          <label><input type="radio" name="mv" value="0" checked><span>🔒 Личная: только я</span></label>
+          <label><input type="radio" name="mv" value="1"><span>🌐 Публичная: все</span></label>
+        </div>
+        <div><button type="button" class="b" id="mc">Создать подборку</button></div>
+        <p class="ferr" id="merr" role="alert"></p>
+      </div>
+      <div class="grid" id="mlist" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
+      <div id="mview"></div>
+    </div>
+  </section>
+
+  <!-- ОТКРЫТЫЕ ПОДБОРКИ ДРУГИХ -->
+  <section id="pPub" hidden>
+    <div class="tools"><input type="search" id="q" placeholder="Название подборки, автор или фильм внутри…"></div>
+    <div class="grid" id="list" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
+    <div id="view"></div>
+  </section>
 </main></div>
+
+<dialog id="dAdd">
+  <h3 id="addh">Добавить из библиотеки</h3>
+  <input type="search" id="aq" placeholder="Поиск по библиотеке…" autocomplete="off" style="margin-top:8px">
+  <div id="alist" class="colbox" style="max-height:50vh"></div>
+  <div class="fact"><button type="button" class="b g" onclick="dAdd.close()">Готово</button><a class="b g" href="library.html">Открыть библиотеку</a></div>
+</dialog>
+
 <script src="js/app.js"></script>
 <script>
 const $ = s => document.querySelector(s), e = KP.esc; let t;
 KP.nav();
+const visBadge = p => `<span class="vis ${p ? 'pub' : ''}">${p ? '🌐 Публичная' : '🔒 Личная'}</span>`;
+const nFilms = n => n + ' ' + (n % 10 === 1 && n % 100 !== 11 ? 'фильм' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'фильма' : 'фильмов');
+const poster = i => `<div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>`;
+
+// ---------- вкладки ----------
+function tab(k) {
+  document.querySelectorAll('#tabs .b').forEach(b => b.className = 'b ' + (b.dataset.tab === k ? 'on' : 'g'));
+  $('#pMine').hidden = k !== 'mine'; $('#pPub').hidden = k !== 'pub';
+}
+$('#tabs').onclick = ev => { const k = ev.target.dataset.tab; if (k) tab(k); };
+
+// ---------- мои подборки ----------
+let cols = [], openName = null;
+async function mine() {
+  $('#mlogin').hidden = !!KP.tok; $('#mwork').hidden = !KP.tok; if (!KP.tok) return;
+  try {
+    const srv = await KP.myCols(), L = KP.load(), known = new Set(srv.map(c => c.name));
+    // названия, которые есть в карточках, но ещё не дошли до сервера, показываем как личные
+    cols = srv.concat([...new Set(L.flatMap(i => i.cols))].filter(n => !known.has(n)).map(name => ({ name, descr: '', public: 0 })));
+    cols.forEach(c => c.n = L.filter(i => i.cols.includes(c.name)).length);
+    $('#mlist').innerHTML = cols.map(c => `<div class="card"><div class="t">
+      <h4>${e(c.name)}</h4><div>${visBadge(c.public)} <small>${nFilms(c.n)}</small></div>
+      ${c.descr ? `<p>${e(c.descr)}</p>` : ''}
+      <div class="acts"><button class="b" data-a="open" data-n="${e(c.name)}">Открыть</button><button class="b g" data-a="vis" data-n="${e(c.name)}">${c.public ? 'Сделать личной' : 'Сделать публичной'}</button><button class="b g" data-a="del" data-n="${e(c.name)}" title="Удалить подборку">✕</button></div>
+    </div></div>`).join('') || '<p>Пока нет подборок. Создайте первую выше: например, «На зимний вечер».</p>';
+    if (openName) { if (cols.some(c => c.name === openName)) view(openName); else { openName = null; $('#mview').innerHTML = ''; } }
+  } catch (er) { $('#mlist').innerHTML = `<p>${e(er.message)}</p>`; }
+}
+$('#mc').onclick = async () => {
+  const name = $('#mn').value.trim(), er = $('#merr'); er.textContent = '';
+  if (!name) { er.textContent = 'Введите название подборки'; return; }
+  try {
+    await KP.createCol(name, $('#md').value.trim(), document.querySelector('[name="mv"]:checked').value === '1');
+    $('#mn').value = ''; $('#md').value = ''; openName = name.slice(0, 60); await mine();
+  } catch (x) { er.textContent = x.message; }
+};
+$('#mn').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#mc').click(); } };
+$('#mlist').onclick = async ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const c = cols.find(x => x.name === b.dataset.n); if (!c) return;
+  try {
+    if (b.dataset.a === 'open') { openName = c.name; view(c.name); $('#mview').scrollIntoView({ behavior: 'smooth' }); }
+    if (b.dataset.a === 'vis') {
+      if (!c.public && !confirm(`Сделать подборку «${c.name}» публичной? Её названия фильмов, описание и ваш логин увидят все пользователи.`)) return;
+      await KP.saveCol({ ...c, public: !c.public }); await mine();
+    }
+    if (b.dataset.a === 'del' && confirm(`Удалить подборку «${c.name}»? Сами фильмы останутся в библиотеке.`)) { if (openName === c.name) openName = null; await KP.deleteCol(c.name); await mine(); }
+  } catch (er) { alert(er.message); }
+};
+// состав подборки: фильмы можно убрать или добавить из библиотеки
+function view(name) {
+  const c = cols.find(x => x.name === name); if (!c) return;
+  const items = KP.load().filter(i => i.cols.includes(name));
+  $('#mview').innerHTML = `<h2>${e(c.name)} ${visBadge(c.public)}</h2>${c.descr ? `<p>${e(c.descr)}</p>` : ''}
+    <div class="tools"><button class="b" id="addf">+ Добавить из библиотеки</button><button class="b g" id="closev">Закрыть</button></div>
+    <div class="grid">${items.map(i => `<div class="card" data-id="${i.id}">${poster(i)}
+      <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type] || ''}</small>
+      <div class="acts"><a class="b" href="movie.html?lib=${i.id}">Открыть</a><button class="b g" data-a="rm" title="Убрать из подборки">Убрать</button></div></div></div>`).join('')}</div>
+    ${items.length ? '' : '<p>В подборке пока пусто. Нажмите «Добавить из библиотеки» или значок 📚 на карточке фильма в библиотеке.</p>'}`;
+  $('#addf').onclick = () => openAdd(name);
+  $('#closev').onclick = () => { openName = null; $('#mview').innerHTML = ''; };
+}
+$('#mview').onclick = async ev => {
+  const b = ev.target.closest('[data-a="rm"]'); if (!b) return;
+  KP.toggleCol(b.closest('.card').dataset.id, openName, false); await mine();
+};
+// окно «Добавить из библиотеки»: галочка = фильм в подборке
+function openAdd(name) {
+  $('#addh').textContent = 'Добавить в «' + name + '»'; $('#aq').value = ''; drawAdd(); dAdd.showModal();
+}
+function drawAdd() {
+  const k = $('#aq').value.trim().toLowerCase(), L = KP.load().filter(i => !k || [i.title, i.director, (i.genres || []).join(' ')].join(' ').toLowerCase().includes(k));
+  $('#alist').innerHTML = L.length ? L.sort((a, b) => a.title.localeCompare(b.title, 'ru')).map(i => `<label class="colrow"><input type="checkbox" data-id="${i.id}" ${i.cols.includes(openName) ? 'checked' : ''}><span>${e(i.title)}</span><small>${e(i.year)}</small></label>`).join('')
+    : `<p class="hint">${KP.load().length ? 'Ничего не найдено.' : 'Библиотека пуста: сначала добавьте фильмы на странице «Библиотека».'}</p>`;
+}
+$('#aq').oninput = drawAdd;
+$('#alist').onchange = async ev => {
+  const c = ev.target; if (!c.dataset.id) return;
+  if (!KP.toggleCol(c.dataset.id, openName, c.checked)) c.checked = !c.checked;
+  await mine();
+};
+
+// ---------- открытые подборки других пользователей ----------
 async function search() {
   try {
     const r = await KP.api('/collections?q=' + encodeURIComponent($('#q').value.trim().toLowerCase()));
     $('#list').innerHTML = r.map(c => `<div class="card"><div class="t"><h4>${e(c.name)}</h4>
-      <small>от <a href="profile.html?u=${encodeURIComponent(c.username)}" style="color:#ffb3b3">${e(c.username)}</a> · фильмов: ${c.n}</small><p>${e(c.descr)}</p>
+      <small>от <a href="profile.html?u=${encodeURIComponent(c.username)}" style="color:#ffb3b3">${e(c.username)}</a> · ${nFilms(c.n)}</small><p>${e(c.descr)}</p>
       <button class="b" data-u="${c.uid}" data-n="${e(c.name)}">Открыть</button></div></div>`).join('') || '<p>Открытых подборок не найдено.</p>';
   } catch (er) { $('#list').innerHTML = `<p>${e(er.message)}</p>`; }
 }
 $('#q').oninput = () => { clearTimeout(t); t = setTimeout(search, 300); };
-$('#list').onclick = ev => { const b = ev.target.closest('button'); if (b) open(b.dataset.u, b.dataset.n); };
+$('#list').onclick = ev => { const b = ev.target.closest('button'); if (b) openPub(b.dataset.u, b.dataset.n); };
 
 let cur = null;
-async function open(uid, name) {
+async function openPub(uid, name) {
   try {
     cur = await KP.api(`/collections/${uid}/${encodeURIComponent(name)}`);
     $('#view').innerHTML = `<h2>${e(cur.name)} <small style="color:#bbb">— ${e(cur.owner)}</small></h2><p>${e(cur.descr)}</p>
       <button class="b" id="cp">+ Добавить всю подборку в мою библиотеку</button>
-      <div class="grid">${cur.items.map(i => `<div class="card"><div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>
+      <div class="grid">${cur.items.map(i => `<div class="card">${poster(i)}
         <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type] || ''}</small>
         ${i.pubReview ? `<details class="rv-d"><summary>${(KP.tone(i.pubReview.revTone) || ['📝'])[0]} Рецензия автора</summary>${KP.rvView(i.pubReview)}</details>` : ''}
         ${i.tmdb ? `<a class="b g" href="movie.html?id=${i.tmdb}&t=${i.type === 'tv' ? 'tv' : 'movie'}">Открыть</a>` : ''}</div></div>`).join('')}</div>`;
@@ -53,11 +170,18 @@ async function open(uid, name) {
 }
 function copy() {
   if (!KP.tok) { alert('Войдите в аккаунт, чтобы сохранять подборки.'); location.href = 'profile.html'; return; }
-  let n = 0; // копии попадают в «В планах» и в личную (закрытую) подборку
-  cur.items.forEach(({ pubReview, ...i }) => { if (KP.add({ ...i, w: [], collection: `${cur.name} (${cur.owner})` }).item) n++; }); // чужая рецензия в копию не попадает
-  alert(`Добавлено: ${n}, дублей пропущено: ${cur.items.length - n}`);
+  const nm = `${cur.name} (${cur.owner})`; let n = 0, m = 0; // копия попадает в «В планах» и в вашу личную подборку; чужая рецензия не копируется
+  cur.items.forEach(({ pubReview, ...i }) => {
+    const r = KP.add({ ...i, w: [], cols: [nm] });
+    if (r.item) n++; else if (r.dup) { KP.toggleCol(r.dup.id, nm, true); m++; } // фильм уже в библиотеке: просто кладём в подборку
+  });
+  alert(`Добавлено новых фильмов: ${n}. Уже были в библиотеке: ${m}. Все они в вашей личной подборке «${nm}».`);
+  mine();
 }
+
+// ---------- старт ----------
 const c = new URLSearchParams(location.search).get('c'); // ссылка вида ?c=uid/название
-search(); if (c) { const k = c.indexOf('/'); open(c.slice(0, k), c.slice(k + 1)); }
+KP.pull().then(mine); search();
+if (c) { tab('pub'); const k = c.indexOf('/'); openPub(c.slice(0, k), c.slice(k + 1)); } else tab(KP.tok ? 'mine' : 'pub');
 </script>
 </body></html>

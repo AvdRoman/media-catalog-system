@@ -96,25 +96,52 @@ const pubReview = d => {
     revAt: Number(d.revAt) || 0, rating: Math.max(0, Math.min(5, Math.round(Number(d.rating)) || 0)) };
 };
 
-// --- подборки: фильмы пользователя с одним названием в поле «collection»; открыть для всех можно в профиле ---
-const CN = "json_extract(i.data,'$.collection')";
-route('GET', '/api/my/collections', ({ res, uid }) => send(res, 200, db.prepare(
-  `SELECT g.name, g.n, COALESCE(c.descr,'') descr, COALESCE(c.public,0) public
-   FROM (SELECT json_extract(data,'$.collection') name, COUNT(*) n FROM items WHERE user_id = ? AND json_extract(data,'$.collection') <> '' GROUP BY 1) g
-   LEFT JOIN collections c ON c.user_id = ? AND c.name = g.name ORDER BY g.name`).all(uid, uid)), true);
+// --- подборки ---
+// Состав подборки хранится в карточках фильмов (массив cols с названиями; старое поле collection с одной подборкой тоже читается),
+// а описание и видимость («личная» — только владелец, «публичная» — все) лежат в таблице collections.
+const incol = x => `(EXISTS (SELECT 1 FROM json_each(i.data,'$.cols') j WHERE j.value = ${x}) OR json_extract(i.data,'$.collection') = ${x})`;
+const colNames = d => [...new Set([...(Array.isArray(d.cols) ? d.cols : []), d.collection].map(s => String(s || '').trim()).filter(Boolean))];
+// мои подборки (и личные, и публичные); названия, которые уже есть в карточках, но не заведены, добавляются как личные
+route('GET', '/api/my/collections', ({ res, uid }) => {
+  const ins = db.prepare('INSERT OR IGNORE INTO collections(user_id, name) VALUES(?,?)');
+  for (const r of db.prepare('SELECT data FROM items WHERE user_id = ?').all(uid)) colNames(JSON.parse(r.data)).forEach(n => ins.run(uid, n));
+  send(res, 200, db.prepare(`SELECT c.name, COALESCE(c.descr,'') descr, COALESCE(c.public,0) public,
+    (SELECT COUNT(*) FROM items i WHERE i.user_id = c.user_id AND ${incol('c.name')}) n
+    FROM collections c WHERE c.user_id = ? ORDER BY c.name`).all(uid));
+}, true);
+// создать подборку: по умолчанию личная (public: false)
+route('POST', '/api/my/collections', ({ res, uid, body }) => {
+  const { descr, public: p } = body || {}, name = String((body || {}).name || '').trim().slice(0, 60);
+  if (!name) return err(res, 400, 'Введите название подборки');
+  // регистр не важен, в том числе для кириллицы (SQLite NOCASE сворачивает только латиницу)
+  if (db.prepare('SELECT name FROM collections WHERE user_id = ?').all(uid).some(c => c.name.toLowerCase() === name.toLowerCase())) return err(res, 409, 'Подборка с таким названием уже есть');
+  db.prepare('INSERT INTO collections VALUES(?,?,?,?)').run(uid, name, String(descr || '').slice(0, 200), p ? 1 : 0);
+  send(res, 200, { ok: true, name });
+}, true);
+// изменить описание и видимость
 route('PUT', '/api/my/collections', ({ res, uid, body }) => {
   const { name, descr, public: p } = body || {}; if (!name) return err(res, 400, 'Нет названия');
   db.prepare(`INSERT INTO collections VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET descr = excluded.descr, public = excluded.public`)
     .run(uid, String(name), String(descr || '').slice(0, 200), p ? 1 : 0);
   send(res, 200, { ok: true });
 }, true);
-// публичный поиск: по названию подборки, автору, описанию и фильмам внутри (регистр не важен, в том числе для кириллицы)
+// удалить подборку: фильмы остаются в библиотеке, из них убирается только название подборки
+route('DELETE', '/api/my/collections/:name', ({ res, uid, p }) => {
+  const name = p[0], upd = db.prepare('UPDATE items SET data = ? WHERE user_id = ? AND id = ?');
+  db.prepare('DELETE FROM collections WHERE user_id = ? AND name = ?').run(uid, name);
+  for (const r of db.prepare('SELECT id, data FROM items WHERE user_id = ?').all(uid)) {
+    const d = JSON.parse(r.data), names = colNames(d);
+    if (names.includes(name)) { d.cols = names.filter(n => n !== name); delete d.collection; upd.run(JSON.stringify(d), uid, r.id); }
+  }
+  send(res, 200, { ok: true });
+}, true);
+// публичный поиск: только публичные подборки; по названию, автору, описанию и фильмам внутри (регистр не важен, в том числе для кириллицы)
 route('GET', '/api/collections', ({ res, q }) => {
   const k = String(q.get('q') || '').trim().toLowerCase(), has = x => String(x || '').toLowerCase().includes(k);
-  const titles = db.prepare(`SELECT json_extract(i.data,'$.title') t FROM items i WHERE i.user_id = ? AND ${CN} = ?`);
+  const titles = db.prepare(`SELECT json_extract(i.data,'$.title') t FROM items i WHERE i.user_id = ? AND ${incol('?')}`);
   const out = [];
   for (const c of db.prepare('SELECT c.user_id uid, u.username, c.name, c.descr FROM collections c JOIN users u ON u.id = c.user_id WHERE c.public = 1').all()) {
-    const ts = titles.all(c.uid, c.name).map(r => r.t);
+    const ts = titles.all(c.uid, c.name, c.name).map(r => r.t);
     if (ts.length && (!k || has(c.name) || has(c.username) || has(c.descr) || ts.some(has))) out.push({ ...c, n: ts.length });
   }
   send(res, 200, out.sort((x, y) => y.n - x.n).slice(0, 50));
@@ -123,7 +150,7 @@ route('GET', '/api/collections/:uid/:name', ({ res, p }) => {
   const c = db.prepare('SELECT * FROM collections WHERE user_id = ? AND name = ? AND public = 1').get(Number(p[0]), p[1]);
   if (!c) return err(res, 404, 'Подборка не найдена или закрыта автором');
   // личные поля (ссылки, статусы, инв. номера) наружу не отдаём; рецензия уходит только с разрешения автора (pubReview)
-  const items = db.prepare(`SELECT data FROM items i WHERE i.user_id = ? AND ${CN} = ?`).all(c.user_id, c.name).map(r => {
+  const items = db.prepare(`SELECT data FROM items i WHERE i.user_id = ? AND ${incol('?')}`).all(c.user_id, c.name, c.name).map(r => {
     const d = JSON.parse(r.data), pr = pubReview(d);
     return { title: d.title, year: d.year, type: d.type, poster: d.poster, tmdb: d.tmdb, imdb: d.imdb, genres: d.genres, director: d.director, runtime: d.runtime, seasons: d.seasons, overview: d.overview, ...(pr ? { pubReview: pr } : {}) };
   });
@@ -132,7 +159,7 @@ route('GET', '/api/collections/:uid/:name', ({ res, p }) => {
 route('GET', '/api/users/:name', ({ res, p }) => {
   const u = db.prepare('SELECT id, username, bio, created FROM users WHERE username = ?').get(p[0]);
   if (!u) return err(res, 404, 'Пользователь не найден');
-  const cols = db.prepare(`SELECT c.name, c.descr, (SELECT COUNT(*) FROM items i WHERE i.user_id = c.user_id AND ${CN} = c.name) n FROM collections c WHERE c.user_id = ? AND c.public = 1`).all(u.id).filter(c => c.n);
+  const cols = db.prepare(`SELECT c.name, c.descr, (SELECT COUNT(*) FROM items i WHERE i.user_id = c.user_id AND ${incol('c.name')}) n FROM collections c WHERE c.user_id = ? AND c.public = 1`).all(u.id).filter(c => c.n);
   send(res, 200, { ...u, collections: cols });
 });
 // публичные рецензии на фильм: ищем по TMDB ID (+тип), IMDb ID, ID Кинопоиска, а у ручных карточек — по названию и году
@@ -149,6 +176,132 @@ route('GET', '/api/reviews', ({ res, q }) => {
   }
   send(res, 200, out.sort((a, b) => b.revAt - a.revAt).slice(0, 50));
 });
+
+// --- общие каталоги ---
+// kind = 'corp'  — корпоративный архив: виден только участникам, вступление по коду приглашения;
+// kind = 'public' — публичный каталог (киноклуб, онлайн-сообщество): смотреть может кто угодно, добавлять — участники.
+// Роли: owner (владелец: участники, код, удаление, любые карточки) и member (добавляет карточки, правит и удаляет только свои).
+db.exec(`
+CREATE TABLE IF NOT EXISTS spaces(id INTEGER PRIMARY KEY, name TEXT, descr TEXT DEFAULT '', kind TEXT, owner_id INTEGER, code TEXT UNIQUE, created INTEGER);
+CREATE TABLE IF NOT EXISTS space_members(space_id INTEGER, user_id INTEGER, role TEXT, joined INTEGER, PRIMARY KEY(space_id, user_id));
+CREATE TABLE IF NOT EXISTS space_items(space_id INTEGER, id TEXT, data TEXT, added_by INTEGER, added INTEGER, PRIMARY KEY(space_id, id));`);
+const newCode = () => crypto.randomBytes(5).toString('hex').toUpperCase();
+const S = (v, n) => String(v ?? '').trim().slice(0, n);
+const okPoster = u => /^https?:\/\//i.test(u) || /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(u);
+// карточка каталога: берём только известные поля и обрезаем длину (лишнее из запроса не сохраняется)
+function cleanItem(b) {
+  b = b || {}; const title = S(b.title, 200); if (!title) return null; const poster = S(b.poster, 400000);
+  return { title, year: /^\d{4}$/.test(S(b.year, 4)) ? S(b.year, 4) : '', type: ['movie', 'tv', 'doc'].includes(b.type) ? b.type : 'movie',
+    poster: okPoster(poster) ? poster : '', genres: (Array.isArray(b.genres) ? b.genres : []).map(g => S(g, 40)).filter(Boolean).slice(0, 12),
+    tags: (Array.isArray(b.tags) ? b.tags : []).map(g => S(g, 40)).filter(Boolean).slice(0, 12),
+    director: S(b.director, 120), runtime: Math.max(0, Math.min(99999, +b.runtime || 0)), overview: S(b.overview, 2000),
+    imdb: /^tt\d{7,10}$/.test(b.imdb || '') ? b.imdb : '', tmdb: Number.isInteger(b.tmdb) ? b.tmdb : null,
+    inv: S(b.inv, 80), url: /^https?:\/\//i.test(b.url || '') ? S(b.url, 500) : '' };
+}
+const spaceById = id => db.prepare('SELECT s.*, u.username owner FROM spaces s JOIN users u ON u.id = s.owner_id WHERE s.id = ?').get(Number(id) || 0);
+const roleOf = (sid, uid) => uid ? (db.prepare('SELECT role FROM space_members WHERE space_id = ? AND user_id = ?').get(sid, uid) || {}).role || '' : '';
+const spN = id => db.prepare('SELECT COUNT(*) n FROM space_items WHERE space_id = ?').get(id).n;
+const spM = id => db.prepare('SELECT COUNT(*) n FROM space_members WHERE space_id = ?').get(id).n;
+const spCard = (s, uid) => ({ id: s.id, name: s.name, descr: s.descr, kind: s.kind, owner: s.owner, n: spN(s.id), members: spM(s.id), role: roleOf(s.id, uid) });
+// закрытый (корпоративный) каталог для посторонних «не существует»: 404, а не 403
+const spaceFor = (id, uid, res, needRole = '') => {
+  const s = spaceById(id), role = s ? roleOf(s.id, uid) : '';
+  if (!s || (s.kind === 'corp' && !role)) { err(res, 404, 'Каталог не найден или закрыт'); return null; }
+  if (needRole === 'member' && !role) { err(res, 403, 'Это действие доступно только участникам каталога'); return null; }
+  if (needRole === 'owner' && role !== 'owner') { err(res, 403, 'Это действие доступно только владельцу'); return null; }
+  return { s, role };
+};
+// публичные каталоги: список и поиск (без входа)
+route('GET', '/api/spaces', ({ res, q, uid }) => {
+  const k = String(q.get('q') || '').trim().toLowerCase(), has = x => String(x || '').toLowerCase().includes(k);
+  const titles = db.prepare(`SELECT json_extract(data,'$.title') t FROM space_items WHERE space_id = ?`);
+  const out = db.prepare(`SELECT s.*, u.username owner FROM spaces s JOIN users u ON u.id = s.owner_id WHERE s.kind = 'public' ORDER BY s.created DESC LIMIT 200`).all()
+    .filter(s => !k || has(s.name) || has(s.descr) || has(s.owner) || titles.all(s.id).some(r => has(r.t))).map(s => spCard(s, uid));
+  send(res, 200, out.sort((a, b) => b.n - a.n || b.members - a.members).slice(0, 60));
+}, 'opt');
+// каталоги, в которых я участвую (код приглашения — только владельцу)
+route('GET', '/api/my/spaces', ({ res, uid }) => send(res, 200, db.prepare(
+  `SELECT s.*, u.username owner FROM spaces s JOIN users u ON u.id = s.owner_id JOIN space_members m ON m.space_id = s.id WHERE m.user_id = ? ORDER BY s.name`).all(uid)
+  .map(s => ({ ...spCard(s, uid), ...(s.owner_id === uid ? { code: s.code } : {}) }))), true);
+route('POST', '/api/spaces', ({ res, uid, body }) => {
+  const name = S((body || {}).name, 60), kind = (body || {}).kind === 'public' ? 'public' : (body || {}).kind === 'corp' ? 'corp' : '';
+  if (!name) return err(res, 400, 'Введите название'); if (!kind) return err(res, 400, 'Не указан тип каталога');
+  if (db.prepare('SELECT COUNT(*) n FROM spaces WHERE owner_id = ?').get(uid).n >= 20) return err(res, 400, 'Можно создать не больше 20 каталогов');
+  const r = db.prepare('INSERT INTO spaces(name, descr, kind, owner_id, code, created) VALUES(?,?,?,?,?,?)').run(name, S(body.descr, 300), kind, uid, newCode(), Date.now());
+  const id = Number(r.lastInsertRowid); db.prepare('INSERT INTO space_members VALUES(?,?,?,?)').run(id, uid, 'owner', Date.now());
+  send(res, 200, { id });
+}, true);
+// вступить по коду приглашения (для корпоративного архива это единственный способ попасть внутрь)
+route('POST', '/api/spaces/join', ({ res, uid, body }) => {
+  const s = db.prepare('SELECT id, kind FROM spaces WHERE code = ?').get(S((body || {}).code, 20).toUpperCase());
+  if (!s) return err(res, 404, 'Неверный код приглашения');
+  db.prepare('INSERT OR IGNORE INTO space_members VALUES(?,?,?,?)').run(s.id, uid, 'member', Date.now()); send(res, 200, { id: s.id, kind: s.kind });
+}, true);
+// вступить в публичный каталог без кода
+route('POST', '/api/spaces/:id/join', ({ res, uid, p }) => {
+  const s = spaceById(p[0]); if (!s || s.kind !== 'public') return err(res, 404, 'Каталог не найден или закрыт');
+  db.prepare('INSERT OR IGNORE INTO space_members VALUES(?,?,?,?)').run(s.id, uid, 'member', Date.now()); send(res, 200, { ok: true });
+}, true);
+route('POST', '/api/spaces/:id/leave', ({ res, uid, p }) => {
+  const a = spaceFor(p[0], uid, res, 'member'); if (!a) return;
+  if (a.role === 'owner') return err(res, 400, 'Владелец не может выйти: удалите каталог');
+  db.prepare('DELETE FROM space_members WHERE space_id = ? AND user_id = ?').run(a.s.id, uid); send(res, 200, { ok: true });
+}, true);
+route('DELETE', '/api/spaces/:id', ({ res, uid, p }) => {
+  const a = spaceFor(p[0], uid, res, 'owner'); if (!a) return;
+  for (const t of ['space_items', 'space_members']) db.prepare(`DELETE FROM ${t} WHERE space_id = ?`).run(a.s.id);
+  db.prepare('DELETE FROM spaces WHERE id = ?').run(a.s.id); send(res, 200, { ok: true });
+}, true);
+route('PUT', '/api/spaces/:id', ({ res, uid, p, body }) => {
+  const a = spaceFor(p[0], uid, res, 'owner'); if (!a) return;
+  const name = S((body || {}).name, 60) || a.s.name;
+  db.prepare('UPDATE spaces SET name = ?, descr = ? WHERE id = ?').run(name, S((body || {}).descr, 300), a.s.id); send(res, 200, { ok: true });
+}, true);
+// новый код приглашения: старый перестаёт работать
+route('POST', '/api/spaces/:id/code', ({ res, uid, p }) => {
+  const a = spaceFor(p[0], uid, res, 'owner'); if (!a) return;
+  const code = newCode(); db.prepare('UPDATE spaces SET code = ? WHERE id = ?').run(code, a.s.id); send(res, 200, { code });
+}, true);
+route('DELETE', '/api/spaces/:id/members/:mid', ({ res, uid, p }) => {
+  const a = spaceFor(p[0], uid, res, 'owner'); if (!a) return;
+  if (Number(p[1]) === uid) return err(res, 400, 'Себя исключить нельзя');
+  db.prepare('DELETE FROM space_members WHERE space_id = ? AND user_id = ?').run(a.s.id, Number(p[1])); send(res, 200, { ok: true });
+}, true);
+// содержимое каталога. Посторонним в публичном каталоге не отдаются инв. номер и ссылка, список участников — только участникам
+route('GET', '/api/spaces/:id', ({ res, uid, p }) => {
+  const a = spaceFor(p[0], uid, res); if (!a) return;
+  const items = db.prepare('SELECT i.id, i.data, i.added_by, i.added, u.username AS author FROM space_items i LEFT JOIN users u ON u.id = i.added_by WHERE i.space_id = ? ORDER BY i.added DESC').all(a.s.id).map(r => {
+    const d = JSON.parse(r.data); if (!a.role) { delete d.inv; delete d.url; }
+    return { id: r.id, ...d, by: r.author || '', added: r.added, mine: r.added_by === uid };
+  });
+  const memberList = a.role ? db.prepare('SELECT u.id, u.username, m.role FROM space_members m JOIN users u ON u.id = m.user_id WHERE m.space_id = ? ORDER BY m.role DESC, u.username').all(a.s.id) : undefined;
+  send(res, 200, { ...spCard(a.s, uid), items, memberList, ...(a.role === 'owner' ? { code: a.s.code } : {}) });
+}, 'opt');
+route('POST', '/api/spaces/:id/items', ({ res, uid, p, body }) => {
+  const a = spaceFor(p[0], uid, res, 'member'); if (!a) return;
+  const d = cleanItem(body); if (!d) return err(res, 400, 'Введите название');
+  const dup = db.prepare('SELECT data FROM space_items WHERE space_id = ?').all(a.s.id).some(r => { const x = JSON.parse(r.data); return x.title.toLowerCase() === d.title.toLowerCase() && x.year === d.year; });
+  if (dup) return err(res, 409, `«${d.title}»${d.year ? ' (' + d.year + ')' : ''} уже есть в каталоге`);
+  const id = crypto.randomBytes(6).toString('hex'); db.prepare('INSERT INTO space_items VALUES(?,?,?,?,?)').run(a.s.id, id, JSON.stringify(d), uid, Date.now()); send(res, 200, { id });
+}, true, 6e5);
+// править и удалять карточку может её автор или владелец каталога
+const ownItem = (res, uid, p) => {
+  const a = spaceFor(p[0], uid, res, 'member'); if (!a) return null;
+  const r = db.prepare('SELECT * FROM space_items WHERE space_id = ? AND id = ?').get(a.s.id, p[1]);
+  if (!r) { err(res, 404, 'Карточка не найдена'); return null; }
+  if (a.role !== 'owner' && r.added_by !== uid) { err(res, 403, 'Править и удалять можно только свои карточки'); return null; }
+  return { a, r };
+};
+route('PUT', '/api/spaces/:id/items/:iid', ({ res, uid, p, body }) => {
+  const o = ownItem(res, uid, p); if (!o) return; const d = cleanItem(body); if (!d) return err(res, 400, 'Введите название');
+  const dup = db.prepare('SELECT id, data FROM space_items WHERE space_id = ?').all(o.a.s.id).some(r => { const x = JSON.parse(r.data); return r.id !== o.r.id && x.title.toLowerCase() === d.title.toLowerCase() && x.year === d.year; });
+  if (dup) return err(res, 409, `«${d.title}» уже есть в каталоге`);
+  db.prepare('UPDATE space_items SET data = ? WHERE space_id = ? AND id = ?').run(JSON.stringify(d), o.a.s.id, o.r.id); send(res, 200, { ok: true });
+}, true, 6e5);
+route('DELETE', '/api/spaces/:id/items/:iid', ({ res, uid, p }) => {
+  const o = ownItem(res, uid, p); if (!o) return;
+  db.prepare('DELETE FROM space_items WHERE space_id = ? AND id = ?').run(o.a.s.id, o.r.id); send(res, 200, { ok: true });
+}, true);
 
 // --- Кинопоиск (kinopoisk.dev): запросы идут через сервер, ключ в браузер не попадает ---
 // TMDB остаётся основным источником (постер, описание); Кинопоиск добавляет рейтинги, ссылку и «где смотреть»
@@ -248,8 +401,8 @@ http.createServer(async (req, res) => {
     if (r.needAuth) {
       const t = (req.headers.authorization || '').slice(7);
       const s = t && db.prepare('SELECT user_id FROM sessions WHERE token = ? AND created > ?').get(t, Date.now() - DAY30);
-      if (!s) { req.resume(); return err(res, 401, 'Нужно войти в аккаунт'); }
-      uid = s.user_id;
+      if (s) uid = s.user_id;
+      else if (r.needAuth !== 'opt') { req.resume(); return err(res, 401, 'Нужно войти в аккаунт'); }
     }
   } catch (e) { console.error(e); return err(res, 500, 'Ошибка сервера'); }
   let body; try { body = await readBody(req, r.maxBody); } catch (e) { return err(res, 400, 'Некорректный запрос'); }

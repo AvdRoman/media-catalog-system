@@ -12,6 +12,7 @@
     <li><a href="index.html">Главная</a></li>
     <li class="active"><a href="library.html">Библиотека</a></li>
     <li><a href="community.html">Подборки</a></li>
+    <li><a href="spaces.html">Каталоги</a></li>
     <li><a href="profile.html" id="me">Вход</a></li>
     <li class="btn"><a href="contacts.html">Контакты</a></li>
   </ul></nav>
@@ -65,6 +66,23 @@
   <div id="rvbox"></div>
 </dialog>
 
+<dialog id="dCol">
+  <h3 id="colh">В подборку</h3>
+  <div id="colbox" class="colbox"></div>
+  <details id="colnew" open>
+    <summary>+ Новая подборка</summary>
+    <input id="ncn" maxlength="60" placeholder="Например: На зимний вечер" autocomplete="off">
+    <input id="ncd" maxlength="200" placeholder="Описание (необязательно)" autocomplete="off" style="margin-top:8px">
+    <div class="seg" role="radiogroup" aria-label="Кто видит подборку">
+      <label><input type="radio" name="ncv" value="0" checked><span>🔒 Личная: только я</span></label>
+      <label><input type="radio" name="ncv" value="1"><span>🌐 Публичная: все</span></label>
+    </div>
+    <button type="button" class="b" id="ncb">Создать и добавить фильм</button>
+  </details>
+  <p class="ferr" id="colerr" role="alert"></p>
+  <div class="fact"><button type="button" class="b g" onclick="dCol.close()">Готово</button><a class="b g" href="community.html">Все мои подборки</a></div>
+</dialog>
+
 <dialog id="dEdit"><form id="fEdit" method="dialog">
   <h3 id="eh">Новая карточка</h3>
   <div class="seg" role="radiogroup" aria-label="Тип">
@@ -102,10 +120,8 @@
     <span class="hint" id="snh">Сезоны и серии отмечаются кнопкой «Серии» на карточке.</span>
   </div>
 
-  <div class="two">
-    <label>Теги (через запятую)<input name="tags" placeholder="Для вечера с семьёй, Хоррор на Хеллоуин"></label>
-    <label>Подборка<input name="collection" list="cols"></label><datalist id="cols"></datalist>
-  </div>
+  <label>Теги (через запятую)<input name="tags" placeholder="Для вечера с семьёй, Хоррор на Хеллоуин"></label>
+  <span class="hint">В подборку фильм добавляется кнопкой 📚 на карточке в библиотеке.</span>
 
   <details>
     <summary>Источник и прогресс</summary>
@@ -128,11 +144,10 @@ const csv = v => v.split(',').map(s => s.trim()).filter(Boolean);
 function render() {
   const L = KP.load(), q = $('#q').value.toLowerCase(), f = { s: $('#fs').value, t: $('#ft').value, r: +$('#fr').value, c: $('#fc').value, v: $('#fv').value };
   // подборки
-  const cols = [...new Set(L.map(i => i.collection).filter(Boolean))];
+  const cols = [...new Set(L.flatMap(i => i.cols))].sort((a, b) => a.localeCompare(b, 'ru'));
   $('#fc').innerHTML = '<option value="">Все подборки</option>' + cols.map(c => `<option ${c === f.c ? 'selected' : ''}>${e(c)}</option>`).join('');
-  $('#cols').innerHTML = cols.map(c => `<option value="${e(c)}">`).join('');
-  let a = L.filter(i => (!f.s || i.status === f.s) && (!f.t || i.type === f.t) && i.rating >= f.r && (!f.c || i.collection === f.c) && (!f.v || KP.hasRv(i)) &&
-    [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.collection, i.review].join(' ').toLowerCase().includes(q));
+  let a = L.filter(i => (!f.s || i.status === f.s) && (!f.t || i.type === f.t) && i.rating >= f.r && (!f.c || i.cols.includes(f.c)) && (!f.v || KP.hasRv(i)) &&
+    [i.title, i.director, i.genres.join(' '), i.tags.join(' '), i.inv, i.cols.join(' '), i.review].join(' ').toLowerCase().includes(q));
   const so = $('#so').value;
   a.sort((x, y) => so === 'title' ? x.title.localeCompare(y.title) : so === 'rating' ? y.rating - x.rating : so === 'year' ? y.year - x.year : y.added - x.added);
   $('#grid').innerHTML = a.length ? a.map(card).join('') : '<p>Ничего не найдено. Добавьте фильм через TMDB или вручную.</p>';
@@ -143,13 +158,13 @@ function card(i) {
   return `<div class="card" data-id="${i.id}">
     <div class="p" style="${KP.safePoster(i.poster) ? `background-image:url('${e(KP.safePoster(i.poster))}')` : ''}">${KP.safePoster(i.poster) ? '' : '▶'}</div>
     <div class="t"><h4>${e(i.title)}</h4><small>${e(i.year)} · ${KP.TY[i.type]} · ${KP.SRC[i.source]}${i.inv ? ' · ' + e(i.inv) : ''}</small>
-      <div>${i.genres.map(g => `<span class="pill">${e(g)}</span>`).join('')}${i.tags.map(g => `<span class="pill">#${e(g)}</span>`).join('')}</div>
+      <div>${i.genres.map(g => `<span class="pill">${e(g)}</span>`).join('')}${i.tags.map(g => `<span class="pill">#${e(g)}</span>`).join('')}${i.cols.map(g => `<span class="pill col" title="Подборка">📚 ${e(g)}</span>`).join('')}</div>
       ${i.ratingKp || i.ratingImdb ? `<small>${[i.ratingKp ? `<a href="${e(i.kpUrl || '#')}" target="_blank" rel="noopener" style="color:#ffb3b3">КП ${e(i.ratingKp)}</a>` : '', i.ratingImdb ? 'IMDb ' + e(i.ratingImdb) : ''].filter(Boolean).join(' · ')}</small>` : ''}
       ${i.progress ? `<small>Прогресс: ${e(i.progress)}</small>` : ''}
       ${KP.hasRv(i) ? `<div class="rv-snip" data-a="rv" title="Открыть рецензию">${(KP.tone(i.revTone) || ['📝'])[0]} ${i.revSpoiler ? '<i>Рецензия со спойлерами</i>' : e(i.review.slice(0, 160))}</div>` : ''}
       <select data-a="st" class="edit">${Object.entries(KP.ST).map(([k, v]) => `<option value="${k}" ${k === i.status ? 'selected' : ''}>${v}</option>`).join('')}</select>
       <div class="stars edit">${[1, 2, 3, 4, 5].map(n => `<span data-a="r" data-n="${n}" class="${n <= i.rating ? 'on' : ''}">★</span>`).join('')}</div>
-      <div class="acts"><a class="b" href="${link}">▶ Смотреть</a>${i.type === 'tv' ? '<button class="b g edit" data-a="ep">Серии</button>' : ''}<button class="b g edit" data-a="rv" title="Рецензия">📝</button><button class="b g edit" data-a="e" title="Редактировать карточку">✎</button><button class="b g edit" data-a="d">✕</button></div>
+      <div class="acts"><a class="b" href="${link}">▶ Смотреть</a>${i.type === 'tv' ? '<button class="b g edit" data-a="ep">Серии</button>' : ''}<button class="b g edit" data-a="col" title="Добавить в подборку">📚</button><button class="b g edit" data-a="rv" title="Рецензия">📝</button><button class="b g edit" data-a="e" title="Редактировать карточку">✎</button><button class="b g edit" data-a="d">✕</button></div>
     </div></div>`;
 }
 $('#grid').addEventListener('click', ev => {
@@ -159,6 +174,7 @@ $('#grid').addEventListener('click', ev => {
   if (a === 'd' && confirm('Удалить из библиотеки?')) { KP.remove(id); render(); }
   if (a === 'e') openEdit(id);
   if (a === 'rv') openRv(id);
+  if (a === 'col') openCol(id);
   if (a === 'ep') openEp(id);
 });
 $('#grid').addEventListener('change', ev => { if (ev.target.dataset.a === 'st') { KP.update(ev.target.closest('.card').dataset.id, { status: ev.target.value }); render(); } });
@@ -171,6 +187,38 @@ function openRv(id) {
   KP.rvMine($('#rvbox'), id, { edit: !KP.hasRv(it), change: render, cancel: () => dRev.close(), close: () => dRev.close() });
   dRev.showModal();
 }
+
+// подборки: отметить, в какие подборки входит фильм, или создать новую (личную — видна только вам, публичную — всем)
+let colId = null;
+async function openCol(id) {
+  if (!KP.tok) { if (confirm('Подборки привязаны к аккаунту. Войти или зарегистрироваться?')) location.href = 'profile.html'; return; }
+  colId = id; const it = KP.load().find(x => x.id === id); if (!it) return;
+  $('#colh').textContent = 'В подборку — ' + it.title; $('#colerr').textContent = ''; $('#ncn').value = ''; $('#ncd').value = '';
+  dCol.showModal(); await drawCols();
+}
+async function drawCols() {
+  const it = KP.load().find(x => x.id === colId); if (!it) return;
+  try {
+    const list = await KP.myCols();
+    $('#colbox').innerHTML = list.length ? list.map(c => `<label class="colrow"><input type="checkbox" data-n="${e(c.name)}" ${it.cols.includes(c.name) ? 'checked' : ''}><span>${e(c.name)}</span><small>${c.public ? '🌐 публичная' : '🔒 личная'}</small></label>`).join('')
+      : '<p class="hint">У вас пока нет подборок. Создайте первую ниже.</p>';
+    $('#colnew').open = !list.length;
+  } catch (er) { $('#colbox').innerHTML = ''; $('#colerr').textContent = er.message; }
+}
+$('#colbox').onchange = ev => {
+  const c = ev.target; if (!c.dataset.n) return;
+  if (!KP.toggleCol(colId, c.dataset.n, c.checked)) c.checked = !c.checked; // места в браузере нет: предупреждение уже показано
+  render();
+};
+$('#ncb').onclick = async () => {
+  const name = $('#ncn').value.trim(), err = $('#colerr'); err.textContent = '';
+  if (!name) { err.textContent = 'Введите название подборки'; return; }
+  try {
+    await KP.createCol(name, $('#ncd').value.trim(), document.querySelector('[name="ncv"]:checked').value === '1');
+    KP.toggleCol(colId, name.slice(0, 60), true); $('#ncn').value = ''; $('#ncd').value = ''; render(); await drawCols();
+  } catch (er) { err.textContent = er.message; }
+};
+$('#ncn').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#ncb').click(); } };
 
 // напоминания: начатое без движения 14+ дней, планы старше 30 дней
 function remind(L) {
@@ -334,7 +382,7 @@ function openEdit(id, pre = {}) {
   editId = id; const it = id ? KP.load().find(x => x.id === id) : pre;
   $('#eh').textContent = id ? 'Редактирование карточки' : 'Новая карточка'; $('#fsave').textContent = id ? 'Сохранить' : 'Создать карточку';
   F.reset();
-  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'collection', 'overview', 'imdb']) if (it[k] !== undefined && it[k] !== null) E[k].value = it[k];
+  for (const k of ['title', 'year', 'director', 'type', 'source', 'url', 'inv', 'runtime', 'progress', 'overview', 'imdb']) if (it[k] !== undefined && it[k] !== null) E[k].value = it[k];
   E.genres.value = (it.genres || []).join(', '); E.tags.value = (it.tags || []).join(', ');
   pv = it.poster || ''; E.poster.value = /^https?:/i.test(pv) ? pv : ''; hint(/^data:/i.test(pv) ? 'Постер загружен с устройства' : ''); ferr('');
   showPoster(); syncChips(); tvVis(); dEdit.showModal();
@@ -355,7 +403,7 @@ F.onsubmit = ev => {
   const dup = L.find(x => x.id !== editId && x.title.toLowerCase() === title.toLowerCase() && String(x.year) === year);
   if (dup) return bad(`«${dup.title}»${year ? ' (' + year + ')' : ''} уже есть в библиотеке. Измените название или год.`);
   const d = { title, year, director: E.director.value.trim(), type: E.type.value, source: E.source.value, url: E.url.value.trim(), inv: E.inv.value.trim(),
-    runtime: +E.runtime.value || 0, progress: E.progress.value.trim(), collection: E.collection.value.trim(),
+    runtime: +E.runtime.value || 0, progress: E.progress.value.trim(),
     genres: canon(genreList(), L), tags: csv(E.tags.value), overview: E.overview.value.trim(), imdb, poster };
   if (seasons) d.seasons = seasons;
   if (editId) { if (!KP.update(editId, d)) return ev.preventDefault(); render(); return; }
@@ -404,10 +452,10 @@ $('#adds').onclick = () => {
   const s = KP.load().find(x => x.id === epId).seasons || [];
   KP.update(epId, { seasons: [...s, { n: s.length ? s[s.length - 1].n + 1 : 1, c: n }] }); $('#newc').value = ''; openEp(epId); render();
 };
-// режим: личная / корпоративная / публичная (только просмотр)
-$('#mode').value = localStorage.getItem('kp_mode') || 'personal';
-$('#mode').onchange = () => { localStorage.setItem('kp_mode', $('#mode').value); applyMode(); };
-function applyMode() { document.body.classList.toggle('ro', $('#mode').value === 'public'); }
-applyMode(); render(); KP.nav(); KP.pull().then(render);
+// режим: личная коллекция (эта страница) / корпоративный архив / публичный каталог (общие каталоги на странице «Каталоги»)
+$('#mode').value = 'personal';
+$('#mode').onchange = () => { if ($('#mode').value !== 'personal') location.href = 'spaces.html?kind=' + $('#mode').value; };
+window.addEventListener('pageshow', () => { $('#mode').value = 'personal'; }); // возврат кнопкой «Назад»
+render(); KP.nav(); KP.pull().then(render);
 </script>
 </body></html>

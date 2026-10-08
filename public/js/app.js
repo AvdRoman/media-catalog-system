@@ -5,7 +5,12 @@ const KP = {
   // --- аккаунт: у каждого пользователя своя библиотека; сервер (SQLite) — главное хранилище ---
   user: JSON.parse(localStorage.getItem('kp_user') || 'null'), tok: localStorage.getItem('kp_tok') || '',
   lk() { return 'kp_lib_' + (this.user ? this.user.id : 'guest'); },
-  load() { try { return JSON.parse(localStorage.getItem(this.lk())) || []; } catch (e) { return []; } },
+  load() { try { return (JSON.parse(localStorage.getItem(this.lk())) || []).map(i => this.norm(i)); } catch (e) { return []; } },
+  // фильм может входить в несколько подборок: названия лежат в массиве cols (старое поле collection с одной подборкой переносится сюда)
+  norm(i) {
+    if (!i || typeof i !== 'object') return i;
+    i.cols = [...new Set([...(Array.isArray(i.cols) ? i.cols : []), i.collection].map(c => String(c || '').trim()).filter(Boolean))]; delete i.collection; return i;
+  },
   save(l) {
     try { localStorage.setItem(this.lk(), JSON.stringify(l)); }
     catch (e) { // хранилище браузера (~5 МБ) переполнено; предупреждаем не чаще раза в 5 секунд
@@ -114,7 +119,7 @@ const KP = {
   add(it) {
     const l = this.load(), ex = this.find(l, it.title, it.year) || (it.tmdb && l.find(i => i.tmdb === it.tmdb && i.type === it.type)) || (it.kpId && l.find(i => i.kpId === it.kpId));
     if (ex) return { dup: ex };
-    it = { status: 'plan', rating: 0, tags: [], genres: [], collection: '', source: 'stream', url: '', inv: '', review: '', progress: '', runtime: 0, ...it,
+    it = { status: 'plan', rating: 0, tags: [], genres: [], cols: [], source: 'stream', url: '', inv: '', review: '', progress: '', runtime: 0, ...it,
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), added: Date.now(), upd: Date.now() };
     l.push(it); if (!this.save(l)) return { fail: true }; return { item: it };
   },
@@ -125,6 +130,20 @@ const KP = {
     return this.save(l);
   },
   remove(id) { this.save(this.load().filter(i => i.id !== id)); },
+  // --- подборки: состав хранится в карточках (cols), а описание и видимость («личная» / «публичная») — на сервере ---
+  myCols() { return this.tok ? this.api('/my/collections') : Promise.resolve([]); },
+  createCol(name, descr, pub) { return this.api('/my/collections', { method: 'POST', body: { name, descr, public: !!pub } }); },
+  saveCol(c) { return this.api('/my/collections', { method: 'PUT', body: { name: c.name, descr: c.descr || '', public: !!c.public } }); },
+  // добавить фильм в подборку / убрать из неё (дату изменения не трогаем, чтобы не сбивать напоминания)
+  toggleCol(id, name, on) {
+    const l = this.load(), i = l.find(x => x.id === id); if (!i) return false;
+    const s = new Set(i.cols); on ? s.add(name) : s.delete(name); i.cols = [...s]; return this.save(l);
+  },
+  // удалить подборку: фильмы остаются в библиотеке
+  async deleteCol(name) {
+    const l = this.load(); l.forEach(i => { i.cols = i.cols.filter(c => c !== name); }); this.save(l);
+    await this.api('/my/collections/' + encodeURIComponent(name), { method: 'DELETE' });
+  },
   // --- рецензии: текст + впечатление + пометка «спойлеры» + «показывать другим» (всё хранится в самой карточке) ---
   RV: { pos: ['👍', 'Понравилось'], neu: ['😐', 'Нейтрально'], neg: ['👎', 'Не понравилось'] }, RV_MAX: 3000,
   tone(k) { return Object.hasOwn(this.RV, k) ? this.RV[k] : null; },

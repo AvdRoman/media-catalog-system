@@ -130,3 +130,27 @@ dialog label.b { display: block; text-align: center; margin: 0; color: #fff; fon
 .rv-snip:hover { background: rgba(255,255,255,.12); }
 .card .rv-d summary { cursor: pointer; color: #ffb3b3; font-size: 13px; } .card .rv { margin: 8px 0 0; padding: 10px 12px; font-size: 13px; }
 dialog .rv-form { background: none; padding: 0; margin: 12px 0 0; } dialog .rv { margin-top: 6px; }
+/* подборки */
+.seg label { flex: 1; margin: 0; cursor: pointer; position: relative; }
+.pill.col { background: rgba(255,255,255,.14); }
+.colbox { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; max-height: 40vh; overflow: auto; }
+.colrow { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.08); border-radius: 10px; padding: 9px 12px; cursor: pointer; color: #fff; font-size: 15px; margin: 0; }
+.colrow:hover { background: rgba(215,0,0,.25); }
+.colrow span { flex: 1; }
+.colrow small { color: #bbb; white-space: nowrap; }
+dialog .colrow input { width: auto; margin: 0; }
+#colnew { margin: 12px 0; border-top: 1px solid rgba(255,255,255,.12); padding-top: 8px; }
+#colnew .seg { margin: 10px 0; }
+.vis { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 20px; background: rgba(255,255,255,.12); white-space: nowrap; }
+.vis.pub { background: rgba(40,160,80,.35); }
+.cform { padding: 18px; margin: 18px 0; display: flex; flex-direction: column; gap: 10px; }
+.cform input[type=text] { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 9px 14px; font: inherit; outline: none; }
+.cform input[type=text]:focus { border-color: #d70000; box-shadow: 0 0 10px #d70000; }
+.cform .seg { margin: 2px 0; max-width: 520px; }
+.cform .seg label { flex: 1; }
+
+/* общие каталоги */
+#dItem { width: min(720px, 94vw); max-height: 92vh; overflow: auto; }
+#dItem .seg { margin: 12px 0 4px; }
+.cform summary { cursor: pointer; font-weight: 600; }
+.tabs .b.on { background: #fff; color: #000; }

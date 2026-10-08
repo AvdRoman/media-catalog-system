@@ -12,6 +12,7 @@
     <li><a href="index.html">Главная</a></li>
     <li><a href="library.html">Библиотека</a></li>
     <li><a href="community.html">Подборки</a></li>
+    <li><a href="spaces.html">Каталоги</a></li>
     <li class="active"><a href="profile.html" id="me">Вход</a></li>
     <li class="btn"><a href="contacts.html">Контакты</a></li>
   </ul></nav>
@@ -51,15 +52,12 @@ async function me() {
     <p>В библиотеке: <b>${L.length}</b> · просмотрено: <b>${done}</b></p>
     <label style="display:block;margin-top:12px">О себе<textarea id="bio" rows="2" style="width:100%;margin-top:4px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:9px;font:inherit">${e(u.bio)}</textarea></label>
     <div class="tools"><button class="b" id="sb">Сохранить</button><button class="b g" id="lo">Выйти</button></div>`) +
-    `<h2>Мои подборки</h2><p style="color:#bbb">Подборка создаётся, когда вы указываете её название в карточке фильма (поле «Подборка»). Здесь её можно открыть для всех.</p><div id="cols"></div>`;
+    `<h2>Мои подборки</h2><p style="color:#bbb">Подборки создаются и наполняются на странице «Подборки»: там же выбирается, личная подборка (видите только вы) или публичная (видят все).</p><div id="cols"></div>`;
   $('#sb').onclick = async () => { await KP.api('/me', { method: 'PUT', body: { bio: $('#bio').value } }); alert('Сохранено'); };
   $('#lo').onclick = () => { KP.logout(); KP.nav(); authView(); };
   const cols = await KP.api('/my/collections');
-  $('#cols').innerHTML = cols.length ? cols.map((c, k) => box(`<h3>${e(c.name)} <small style="color:#bbb">(${c.n})</small></h3>
-    <input data-k="${k}" class="dsc" placeholder="Описание" value="${e(c.descr)}" style="width:100%;margin:8px 0;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:9px;font:inherit">
-    <label><input type="checkbox" data-k="${k}" class="pub" ${c.public ? 'checked' : ''}> Открыта всем (видна в поиске)</label>`)).join('') : '<p>Пока нет подборок.</p>';
-  const save = k => KP.api('/my/collections', { method: 'PUT', body: { name: cols[k].name, descr: document.querySelector(`.dsc[data-k="${k}"]`).value, public: document.querySelector(`.pub[data-k="${k}"]`).checked } });
-  document.querySelectorAll('.pub,.dsc').forEach(i => i.onchange = () => save(+i.dataset.k));
+  $('#cols').innerHTML = (cols.length ? cols.map(c => `<p>${c.public ? '🌐' : '🔒'} <b>${e(c.name)}</b> <small style="color:#bbb">(${c.n}) · ${c.public ? 'публичная' : 'личная'}</small></p>`).join('') : '<p>Пока нет подборок.</p>') +
+    '<p><a class="b" href="community.html">Управлять подборками</a></p>';
 }
 
 async function other(name) {
